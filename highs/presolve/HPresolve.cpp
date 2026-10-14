@@ -97,8 +97,14 @@ bool HPresolve::okSetInput(HighsLp& model_, const HighsOptions& options_,
   if (mipsolver == nullptr) {
     primal_feastol = options->primal_feasibility_tolerance;
     model->integrality_.assign(model->num_col_, HighsVarType::kContinuous);
-  } else
-    primal_feastol = options->mip_feasibility_tolerance;
+  } else {
+    // Candidate acceptance and irreversible presolve deductions have distinct
+    // contracts. A loose MIP acceptance tolerance cannot serve as the
+    // numerical precision of a feasibility or dominance deduction.
+    primal_feastol = options->mip_strict_numerics
+                         ? std::min(options->mip_feasibility_tolerance, 1e-10)
+                         : options->mip_feasibility_tolerance;
+  }
 
   if (model_.a_matrix_.isRowwise()) {
     // Does this even happen?

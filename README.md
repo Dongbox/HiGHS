@@ -60,6 +60,8 @@ Although HiGHS is freely available under the MIT license, we would be pleased to
 
 ## Documentation
 
+This repository contains [OptAgent fork changes and maintenance instructions](OPTAGENT_FORK.md).
+
 Documentation is available at https://ergo-code.github.io/HiGHS/.
 
 <a id="installation"></a>

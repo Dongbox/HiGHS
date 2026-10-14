@@ -8,6 +8,7 @@ const bool dev_run = false;
 
 TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
           "[highs_test_presolve_rules][optagent_regression]") {
+  const bool strict = GENERATE(false, true);
   Highs::resetGlobalScheduler(true);
   // All zeros are a feasible integer witness. At 1e-6, tolerant binary
   // substitution used to replace a by 20.000001 - 20.000002*z, force z=1,
@@ -15,7 +16,7 @@ TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
   // Reflecting the continuous variables exercises both bound directions.
   for (const bool reflected : {false, true}) {
     for (const double tolerance : {1e-10, 1e-7, 1e-6, 1e-5}) {
-      CAPTURE(reflected, tolerance);
+      CAPTURE(reflected, tolerance, strict);
       HighsLp lp;
       lp.num_col_ = 5;
       lp.num_row_ = 4;
@@ -43,12 +44,15 @@ TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
       REQUIRE(highs.setOptionValue("output_flag", false) == HighsStatus::kOk);
       REQUIRE(highs.setOptionValue("threads", 1) == HighsStatus::kOk);
       REQUIRE(highs.setOptionValue("presolve", "on") == HighsStatus::kOk);
+      REQUIRE(highs.setOptionValue("mip_strict_numerics", strict) ==
+              HighsStatus::kOk);
       REQUIRE(highs.setOptionValue("mip_feasibility_tolerance", tolerance) ==
               HighsStatus::kOk);
       REQUIRE(highs.passModel(lp) == HighsStatus::kOk);
       REQUIRE(highs.run() == HighsStatus::kOk);
       REQUIRE(highs.getModelStatus() == HighsModelStatus::kOptimal);
       REQUIRE(highs.getSolution().value_valid);
+      if (strict) REQUIRE(highs.getInfo().max_primal_infeasibility <= 1e-10);
     }
   }
   Highs::resetGlobalScheduler(true);

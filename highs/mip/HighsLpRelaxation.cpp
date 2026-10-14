@@ -180,11 +180,13 @@ HighsLpRelaxation::HighsLpRelaxation(const HighsMipSolver& mipsolver)
     : mipsolver(mipsolver), worker_(nullptr) {
   lpsolver.setOptionValue("output_flag", false);
   lpsolver.setOptionValue("random_seed", mipsolver.options_mip_->random_seed);
-  // Set primal feasibility tolerance for LP solves according to
-  // mip_feasibility_tolerance, and smaller tolerance for dual
-  // feasibility
+  // A MIP acceptance tolerance must not erase a narrow continuous band in
+  // LP relaxations used for pruning. Solve those relaxations at strict
+  // numerical precision, independently of the candidate acceptance policy.
   double mip_primal_feasibility_tolerance =
-      mipsolver.options_mip_->mip_feasibility_tolerance;
+      mipsolver.options_mip_->mip_strict_numerics
+          ? std::min(mipsolver.options_mip_->mip_feasibility_tolerance, 1e-10)
+          : mipsolver.options_mip_->mip_feasibility_tolerance;
   double mip_dual_feasibility_tolerance =
       mipsolver.options_mip_->mip_feasibility_tolerance * 0.1;
   lpsolver.setOptionValue("primal_feasibility_tolerance",
