@@ -1,3 +1,5 @@
+#include <cmath>
+#include <limits>
 #include <numeric>
 
 #include "HCheckConfig.h"
@@ -14,6 +16,7 @@ const bool dev_run = false;
 
 TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
           "[highs_test_presolve_rules]") {
+  const bool strict = GENERATE(false, true);
   const std::string presolve = GENERATE(std::string("on"), std::string("off"));
   Highs::resetGlobalScheduler(true);
   // All zeros are a feasible integer witness. At 1e-6, tolerant binary
@@ -22,7 +25,7 @@ TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
   // Reflecting the continuous variables exercises both bound directions.
   for (const bool reflected : {false, true}) {
     for (const double tolerance : {1e-10, 1e-7, 1e-6, 1e-5}) {
-      CAPTURE(reflected, tolerance, presolve);
+      CAPTURE(reflected, tolerance, presolve, strict);
       HighsLp lp;
       lp.num_col_ = 5;
       lp.num_row_ = 4;
@@ -50,6 +53,8 @@ TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
       REQUIRE(highs.setOptionValue("output_flag", false) == HighsStatus::kOk);
       REQUIRE(highs.setOptionValue("threads", 1) == HighsStatus::kOk);
       REQUIRE(highs.setOptionValue("presolve", presolve) == HighsStatus::kOk);
+      REQUIRE(highs.setOptionValue("mip_strict_numerics", strict) ==
+              HighsStatus::kOk);
       REQUIRE(highs.setOptionValue("mip_feasibility_tolerance", tolerance) ==
               HighsStatus::kOk);
       REQUIRE(highs.passModel(lp) == HighsStatus::kOk);
@@ -59,6 +64,43 @@ TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
       REQUIRE(highs.getInfo().objective_function_value == 0);
       REQUIRE(highs.getInfo().mip_dual_bound == 0);
       REQUIRE(highs.getInfo().mip_gap == 0);
+      {
+        // Strict presolve preserves this band's tight precision. Without
+        // presolve, primal heuristics can still return a candidate within the
+        // requested MIP acceptance tolerance, even with strict LP solves.
+        const double candidate_tolerance =
+            strict && presolve == "on" ? 1e-10 : tolerance;
+        REQUIRE(highs.getInfo().max_primal_infeasibility <= candidate_tolerance);
+        // Check the original model directly rather than relying only on the
+        // residuals reported for the recovered solution.
+        const auto& values = highs.getSolution().col_value;
+        for (HighsInt col = 0; col < lp.num_col_; ++col) {
+          REQUIRE(values[col] >= lp.col_lower_[col] - candidate_tolerance);
+          REQUIRE(values[col] <= lp.col_upper_[col] + candidate_tolerance);
+        }
+        REQUIRE(std::abs(values[2] - std::round(values[2])) <= candidate_tolerance);
+        for (HighsInt row = 0; row < lp.num_row_; ++row) {
+          long double activity = 0;
+          long double activity_magnitude = 0;
+          for (HighsInt nz = lp.a_matrix_.start_[row];
+               nz < lp.a_matrix_.start_[row + 1]; ++nz) {
+            const long double term =
+                static_cast<long double>(lp.a_matrix_.value_[nz]) *
+                values[lp.a_matrix_.index_[nz]];
+            activity += term;
+            activity_magnitude += std::abs(term);
+          }
+          const long double roundoff =
+              8 * std::numeric_limits<double>::epsilon() *
+              std::max(1.0L, activity_magnitude);
+          REQUIRE(activity >= lp.row_lower_[row] -
+                                  static_cast<long double>(candidate_tolerance) -
+                                  roundoff);
+          REQUIRE(activity <= lp.row_upper_[row] +
+                                  static_cast<long double>(candidate_tolerance) +
+                                  roundoff);
+        }
+      }
     }
   }
   Highs::resetGlobalScheduler(true);

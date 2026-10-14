@@ -78,8 +78,15 @@ void HPresolve::setInput(HighsLp& model_, const HighsOptions& options_,
   if (mipsolver == nullptr) {
     this->primal_feastol = options->primal_feasibility_tolerance;
     model->integrality_.assign(model->num_col_, HighsVarType::kContinuous);
-  } else
-    this->primal_feastol = options->mip_feasibility_tolerance;
+  } else {
+    // Candidate acceptance and irreversible presolve deductions have distinct
+    // contracts. A loose MIP acceptance tolerance cannot serve as the
+    // numerical precision of a feasibility or dominance deduction.
+    this->primal_feastol =
+        options->mip_strict_numerics
+            ? std::min(options->mip_feasibility_tolerance, 1e-10)
+            : options->mip_feasibility_tolerance;
+  }
 
   // Take value passed in as reduction limit, allowing different
   // values to be used for initial presolve, and after restart

@@ -451,8 +451,10 @@ TEST_CASE("highs-callback-ipm-interrupt", "[highs_callback]") {
 }
 
 TEST_CASE("highs-callback-mip-interrupt", "[highs_callback]") {
+  const bool strict = GENERATE(false, true);
   std::string filename = std::string(HIGHS_DIR) + "/check/instances/egout.mps";
   Highs highs;
+  REQUIRE(highs.setOptionValue("mip_strict_numerics", strict) == HighsStatus::kOk);
   highs.setOptionValue("output_flag", dev_run);
   highs.setOptionValue("presolve", kHighsOffString);
   highs.setCallback(userInterruptCallback);

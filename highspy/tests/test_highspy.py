@@ -308,6 +308,28 @@ class TestHighsPy(unittest.TestCase):
         value = np.empty(get_num_nz, dtype=np.double)
         [_status, start, index, value] = h.getRowsEntries(2, indices)
 
+    def test_mip_strict_numerics_options(self):
+        h = highspy.Highs()
+        h.setOptionValue("output_flag", False)
+        self.assertFalse(h.getOptions().mip_strict_numerics)
+        self.assertEqual(
+            h.getOptionType("mip_strict_numerics"),
+            (highspy.HighsStatus.kOk, highspy.HighsOptionType.kBool),
+        )
+        self.assertEqual(
+            h.setOptionValue("mip_strict_numerics", True), highspy.HighsStatus.kOk
+        )
+        self.assertEqual(
+            h.getOptionValue("mip_strict_numerics"), (highspy.HighsStatus.kOk, True)
+        )
+
+        options = h.getOptions()
+        options.mip_strict_numerics = False
+        options.mip_feasibility_tolerance = 1e-5
+        self.assertEqual(h.passOptions(options), highspy.HighsStatus.kOk)
+        self.assertFalse(h.getOptions().mip_strict_numerics)
+        self.assertEqual(h.getOptions().mip_feasibility_tolerance, 1e-5)
+
     def test_options(self):
         h = highspy.Highs()
 

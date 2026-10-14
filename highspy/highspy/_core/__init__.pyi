@@ -446,6 +446,7 @@ class HighsOptions:
     mip_abs_gap: float
     mip_detect_symmetry: bool
     mip_feasibility_tolerance: float
+    mip_strict_numerics: bool
     mip_heuristic_effort: float
     mip_lp_age_limit: int
     mip_max_improving_sols: int

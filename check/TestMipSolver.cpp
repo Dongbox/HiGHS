@@ -4,11 +4,80 @@
 #include "catch.hpp"
 #include "mip/HighsCliqueTable.h"
 #include "mip/HighsImplications.h"
+#include "mip/HighsLpRelaxation.h"
 #include "mip/HighsMipSolver.h"
 #include "mip/HighsMipSolverData.h"
 
 const bool dev_run = false;
 const double double_equal_tolerance = 1e-5;
+
+TEST_CASE("mip-strict-numerics-preserves-candidate-tolerance",
+          "[highs_test_mip_solver]") {
+  const bool strict = GENERATE(false, true);
+  const double tolerance = GENERATE(1e-10, 1e-6, 1e-5);
+  CAPTURE(strict, tolerance);
+  Highs highs;
+  REQUIRE(highs.setOptionValue("output_flag", false) == HighsStatus::kOk);
+  REQUIRE_FALSE(highs.getOptions().mip_strict_numerics);
+  REQUIRE(highs.setOptionValue("mip_strict_numerics", strict) ==
+          HighsStatus::kOk);
+  REQUIRE(highs.setOptionValue("mip_feasibility_tolerance", tolerance) ==
+          HighsStatus::kOk);
+
+  HighsLp lp;
+  lp.num_col_ = 2;
+  lp.num_row_ = 1;
+  lp.col_cost_ = {0, 0};
+  lp.col_lower_ = {0, 0};
+  lp.col_upper_ = {1, 1};
+  lp.integrality_ = {HighsVarType::kInteger, HighsVarType::kContinuous};
+  lp.row_lower_ = {-kHighsInf};
+  lp.row_upper_ = {0};
+  lp.a_matrix_.format_ = MatrixFormat::kColwise;
+  lp.a_matrix_.start_ = {0, 0, 1};
+  lp.a_matrix_.index_ = {0};
+  lp.a_matrix_.value_ = {1};
+
+  HighsCallback callback(&highs);
+  HighsSolution solution;
+  HighsMipSolver mip(callback, highs.getOptions(), lp, solution);
+  HighsLpRelaxation relaxation(mip);
+  REQUIRE(relaxation.getLpSolver().getOptions().primal_feasibility_tolerance ==
+          (strict ? 1e-10 : tolerance));
+
+  HighsOptions default_options = highs.getOptions();
+  default_options.mip_strict_numerics = false;
+  HighsMipSolver default_mip(callback, default_options, lp, solution);
+  HighsLpRelaxation default_relaxation(default_mip);
+  REQUIRE(
+      relaxation.getLpSolver().getOptions().dual_feasibility_tolerance ==
+      default_relaxation.getLpSolver().getOptions().dual_feasibility_tolerance);
+
+  // A candidate within the requested MIP tolerance is still accepted, even
+  // when it violates the stricter LP precision. Check both the row activity
+  // and the integer column, and reject candidates outside the MIP tolerance.
+  MipViolation violation;
+  HighsCDouble objective;
+  REQUIRE(mip.solutionFeasible(&lp, {0.5 * tolerance, 0.5 * tolerance}, nullptr,
+                               violation, objective));
+  REQUIRE_FALSE(mip.solutionFeasible(&lp, {0, 2 * tolerance}, nullptr,
+                                     violation, objective));
+  REQUIRE_FALSE(mip.solutionFeasible(&lp, {2 * tolerance, 0}, nullptr,
+                                     violation, objective));
+}
+
+TEST_CASE("mip-strict-numerics-time-limit", "[highs_test_mip_solver]") {
+  const bool strict = GENERATE(false, true);
+  Highs highs;
+  REQUIRE(highs.setOptionValue("output_flag", false) == HighsStatus::kOk);
+  REQUIRE(highs.setOptionValue("mip_strict_numerics", strict) == HighsStatus::kOk);
+  REQUIRE(highs.setOptionValue("time_limit", 0.0) == HighsStatus::kOk);
+  REQUIRE(highs.readModel(std::string(HIGHS_DIR) + "/check/instances/egout.mps") ==
+          HighsStatus::kOk);
+  REQUIRE(highs.run() == HighsStatus::kWarning);
+  REQUIRE(highs.getModelStatus() == HighsModelStatus::kTimeLimit);
+  highs.resetGlobalScheduler(true);
+}
 
 bool objectiveOk(const double optimal_objective,
                  const double require_optimal_objective,

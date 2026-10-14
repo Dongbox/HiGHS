@@ -1366,6 +1366,7 @@ PYBIND11_MODULE(_core, m, py::mod_gil_not_used()) {
       .def_readwrite("mip_report_level", &HighsOptions::mip_report_level)
       .def_readwrite("mip_feasibility_tolerance",
                      &HighsOptions::mip_feasibility_tolerance)
+      .def_readwrite("mip_strict_numerics", &HighsOptions::mip_strict_numerics)
       .def_readwrite("mip_rel_gap", &HighsOptions::mip_rel_gap)
       .def_readwrite("mip_abs_gap", &HighsOptions::mip_abs_gap)
       .def_readwrite("mip_heuristic_effort",

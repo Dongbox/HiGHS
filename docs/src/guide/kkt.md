@@ -210,10 +210,24 @@ conditions. Variables required to take integer values will do so to
 within the `mip_feasibility_tolerance`. Since MIP sub-problems are
 solved with the simplex solver, the values of the variables and
 constraints will satisfy absolute feasibility tolerances. Within the
-MIP solver, the value of `mip_feasibility_tolerance` is used for
+MIP solver, by default the value of `mip_feasibility_tolerance` is used for
 `primal_feasibility_tolerance` when solving LP sub-problems, and one
 tenth of this value is used for `dual_feasibility_tolerance`. Hence
 any value of `primal_feasibility_tolerance` (or
 `dual_feasibility_tolerance`) set by the user has no effect of the MIP
 solver.
+
+The advanced option `mip_strict_numerics` defaults to `false`. When enabled,
+MIP presolve and the primal feasibility tolerance of LP sub-problems use
+`min(mip_feasibility_tolerance, 1e-10)`. Candidate acceptance continues to use
+`mip_feasibility_tolerance`, and the dual tolerance policy is unchanged.
+The tighter precision may increase solution time or cause numerical
+difficulties on ill-conditioned models; it does not provide exact arithmetic
+or an independent certificate of optimality.
+
+This option still needs numerical validation before production use. In
+particular, `check/instances/2122.lp` can be reported as infeasible with strict
+mode enabled, whereas the default mode finds the known optimal solution.
+Checking returned candidates alone cannot detect an incorrect infeasibility
+status or objective bound.
 

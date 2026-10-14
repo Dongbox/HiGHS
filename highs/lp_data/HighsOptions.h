@@ -509,6 +509,7 @@ struct HighsOptionsStruct {
   HighsInt mip_min_cliquetable_entries_for_parallelism;
   HighsInt mip_report_level;
   double mip_feasibility_tolerance;
+  bool mip_strict_numerics;
   double mip_rel_gap;
   double mip_abs_gap;
   double mip_heuristic_effort;
@@ -681,6 +682,7 @@ struct HighsOptionsStruct {
         mip_min_cliquetable_entries_for_parallelism(0),
         mip_report_level(0),
         mip_feasibility_tolerance(0.0),
+        mip_strict_numerics(false),
         mip_rel_gap(0.0),
         mip_abs_gap(0.0),
         mip_heuristic_effort(0.0),
@@ -1232,6 +1234,13 @@ class HighsOptions : public HighsOptionsStruct {
         &mip_feasibility_tolerance, kMinimumMipTolerance, kDefaultMipTolerance,
         kHighsInf);
     records.push_back(record_double);
+
+    record_bool = new OptionRecordBool(
+        "mip_strict_numerics",
+        "Use strict numerical precision for MIP presolve deductions and LP "
+        "relaxations without changing candidate acceptance tolerance",
+        advanced, &mip_strict_numerics, false);
+    records.push_back(record_bool);
 
     record_double = new OptionRecordDouble(
         "mip_heuristic_effort", "Effort spent for MIP heuristics", advanced,
