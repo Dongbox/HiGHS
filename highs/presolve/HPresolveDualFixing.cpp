@@ -49,14 +49,15 @@ HPresolve::Result HPresolve::dualFixing(HighsPostsolveStack& postsolve_stack,
           model->col_upper_[rowNz.index()] != 1.0)
         continue;
 
-      // skip binary variable if setting it to its lower bound does not make the
-      // row redundant
-      if ((rhsFinite && impliedRowBounds.getResidualSumUpperOrig(
-                            row, rowNz.index(), rowNz.value()) >
-                            model->row_upper_[row] + primal_feastol) ||
-          (lhsFinite && impliedRowBounds.getResidualSumLowerOrig(
-                            row, rowNz.index(), rowNz.value()) <
-                            model->row_lower_[row] - primal_feastol))
+      // Substitution is irreversible. Feasibility tolerance cannot certify
+      // redundancy: a nearly redundant row can still constrain the original
+      // variable, especially when other rows define a narrow continuous band.
+      if ((rhsFinite &&
+           impliedRowBounds.getResidualSumUpperOrig(
+               row, rowNz.index(), rowNz.value()) > model->row_upper_[row]) ||
+          (lhsFinite &&
+           impliedRowBounds.getResidualSumLowerOrig(
+               row, rowNz.index(), rowNz.value()) < model->row_lower_[row]))
         continue;
 
       // now compute the implied lower bound (direction = 1) or implied upper
@@ -69,11 +70,18 @@ HPresolve::Result HPresolve::dualFixing(HighsPostsolveStack& postsolve_stack,
               : -computeImpliedUpperBound(col, rowNz.index(),
                                           model->col_upper_[rowNz.index()]);
 
-      // check if lower / upper bound is implied
-      if (bestBound >= direction * colBound - primal_feastol) {
+      // The endpoint must actually be implied, not merely close within the
+      // MIP acceptance tolerance. Also preserve both endpoints exactly in the
+      // stored affine recovery map; rounded subtraction can put an endpoint
+      // outside its original domain and create a false binary implication.
+      if (bestBound >= direction * colBound) {
         // substitute variable
         double offset = otherColBound;
         double scale = colBound - otherColBound;
+        if (!std::isfinite(offset) || !std::isfinite(scale) ||
+            HighsCDouble(scale) != HighsCDouble(colBound) - otherColBound ||
+            offset + scale != colBound)
+          continue;
         postsolve_stack.doubletonEquation(
             -1, col, rowNz.index(), 1.0, -scale, offset, model->col_lower_[col],
             model->col_upper_[col], 0.0, false, false,
