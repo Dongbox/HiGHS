@@ -6,6 +6,54 @@
 
 const bool dev_run = false;
 
+TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
+          "[highs_test_presolve_rules][optagent_regression]") {
+  Highs::resetGlobalScheduler(true);
+  // All zeros are a feasible integer witness. At 1e-6, tolerant binary
+  // substitution used to replace a by 20.000001 - 20.000002*z, force z=1,
+  // and manufacture an infeasible continuous band before any LP was solved.
+  // Reflecting the continuous variables exercises both bound directions.
+  for (const bool reflected : {false, true}) {
+    for (const double tolerance : {1e-10, 1e-7, 1e-6, 1e-5}) {
+      CAPTURE(reflected, tolerance);
+      HighsLp lp;
+      lp.num_col_ = 5;
+      lp.num_row_ = 4;
+      lp.col_cost_.assign(5, 0.0);
+      lp.col_lower_ = {-1e-6, -1e-6, 0, -1e-6, -1e-6};
+      lp.col_upper_ = {20.000001, 100.000001, 1, 20.000001, 20.000001};
+      lp.integrality_.assign(5, HighsVarType::kContinuous);
+      lp.integrality_[2] = HighsVarType::kInteger;
+      lp.row_lower_ = {-1e-7, -kHighsInf, -1e-7, -kHighsInf};
+      lp.row_upper_ = {kHighsInf, 1e-7, kHighsInf, 20};
+      lp.a_matrix_.format_ = MatrixFormat::kRowwise;
+      lp.a_matrix_.start_ = {0, 3, 6, 9, 11};
+      lp.a_matrix_.index_ = {0, 3, 4, 1, 3, 4, 1, 3, 4, 0, 2};
+      lp.a_matrix_.value_ = {1, -1, -1, 1, -5, -5, 1, -5, -5, 1, 20};
+      if (reflected) {
+        for (HighsInt col : {0, 1, 3, 4}) {
+          const double lower = lp.col_lower_[col];
+          lp.col_lower_[col] = -lp.col_upper_[col];
+          lp.col_upper_[col] = -lower;
+        }
+        for (HighsInt nz = 0; nz < 10; ++nz)
+          lp.a_matrix_.value_[nz] = -lp.a_matrix_.value_[nz];
+      }
+      Highs highs;
+      REQUIRE(highs.setOptionValue("output_flag", false) == HighsStatus::kOk);
+      REQUIRE(highs.setOptionValue("threads", 1) == HighsStatus::kOk);
+      REQUIRE(highs.setOptionValue("presolve", "on") == HighsStatus::kOk);
+      REQUIRE(highs.setOptionValue("mip_feasibility_tolerance", tolerance) ==
+              HighsStatus::kOk);
+      REQUIRE(highs.passModel(lp) == HighsStatus::kOk);
+      REQUIRE(highs.run() == HighsStatus::kOk);
+      REQUIRE(highs.getModelStatus() == HighsModelStatus::kOptimal);
+      REQUIRE(highs.getSolution().value_valid);
+    }
+  }
+  Highs::resetGlobalScheduler(true);
+}
+
 void presolveOffOn(const std::string& message, const HighsLp& lp, Highs& h,
                    const HighsInt require_presolved_model_num_col = 0,
                    const HighsInt require_presolved_model_num_row = 0,

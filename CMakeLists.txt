@@ -28,8 +28,10 @@ project(HIGHS VERSION ${VERSION} LANGUAGES CXX C)
 set(PROJECT_NAMESPACE highs)
 message(STATUS "${PROJECT_NAME} version: ${PROJECT_VERSION}")
 
-# use C++11 standard
-set(CMAKE_CXX_STANDARD 11)
+# Keep standalone C++11 compatibility while respecting embedding projects.
+if(NOT DEFINED CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 11)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
