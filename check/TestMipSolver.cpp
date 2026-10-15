@@ -2,6 +2,10 @@
 #include "Highs.h"
 #include "SpecialLps.h"
 #include "catch.hpp"
+#include "lp_data/HStruct.h"
+#include "mip/HighsMipSolver.h"
+#include "mip/HighsMipSolverData.h"
+#include "parallel/HighsParallel.h"
 
 const bool dev_run = false;
 const double double_equal_tolerance = 1e-5;
@@ -18,6 +22,51 @@ void distillationMIP(Highs& highs);
 void rowlessMIP(Highs& highs);
 void rowlessMIP1(Highs& highs);
 void rowlessMIP2(Highs& highs);
+
+TEST_CASE("analytic-center-at-bound-is-not-a-global-fixing",
+          "[highs_test_mip_solver][optagent_regression]") {
+  Highs::resetGlobalScheduler(true);
+  highs::parallel::initialize_scheduler(1);
+  {
+    HighsLp lp;
+    lp.num_col_ = 2;
+    lp.num_row_ = 0;
+    lp.col_cost_ = {1, 0};
+    lp.col_lower_ = {0, 0};
+    lp.col_upper_ = {1, 1};
+    lp.integrality_ = {HighsVarType::kContinuous, HighsVarType::kInteger};
+    lp.a_matrix_.start_ = {0, 0, 0};
+    lp.setMatrixDimensions();
+    HighsOptions options;
+    options.output_flag = false;
+    options.mip_feasibility_tolerance = 1e-10;
+    Highs callback_owner;
+    HighsCallback callback(&callback_owner);
+    HighsMipSolver solver(callback, options, lp, HighsSolution{});
+    HighsProfiling profiling;
+    solver.profiling_ = &profiling;
+    solver.mipdata_.reset(new HighsMipSolverData(solver));
+    auto& data = *solver.mipdata_;
+    data.feastol = options.mip_feasibility_tolerance;
+    // Even an "Optimal" numerical centring result can sit on a bound.
+    // It is only a hint; both endpoints remain feasible in this model.
+    for (const double center : {0.0, 1.0}) {
+      data.analyticCenterStatus = HighsModelStatus::kOptimal;
+      data.analyticCenter = {center, center};
+      highs::parallel::TaskGroup tasks;
+      tasks.spawn([] {});
+      data.finishAnalyticCenterComputation(tasks);
+      REQUIRE(data.analyticCenterComputed);
+      REQUIRE(data.getDomain().col_lower_ == lp.col_lower_);
+      REQUIRE(data.getDomain().col_upper_ == lp.col_upper_);
+      REQUIRE_FALSE(data.getDomain().infeasible());
+    }
+    REQUIRE(
+        data.getLp().getLpSolver().getOptions().dual_feasibility_tolerance ==
+        1e-10);
+  }
+  Highs::resetGlobalScheduler(true);
+}
 
 TEST_CASE("MIP-distillation", "[highs_test_mip_solver]") {
   Highs highs;

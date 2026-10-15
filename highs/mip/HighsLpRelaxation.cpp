@@ -188,7 +188,10 @@ HighsLpRelaxation::HighsLpRelaxation(const HighsMipSolver& mipsolver)
           ? std::min(mipsolver.options_mip_->mip_feasibility_tolerance, 1e-10)
           : mipsolver.options_mip_->mip_feasibility_tolerance;
   double mip_dual_feasibility_tolerance =
-      mipsolver.options_mip_->mip_feasibility_tolerance * 0.1;
+      mipsolver.options_mip_->mip_strict_numerics
+          ? 1e-10
+          : std::max(1e-10,
+                     mipsolver.options_mip_->mip_feasibility_tolerance * 0.1);
   lpsolver.setOptionValue("primal_feasibility_tolerance",
                           mip_primal_feasibility_tolerance);
   lpsolver.setOptionValue("dual_feasibility_tolerance",

@@ -502,42 +502,13 @@ void HighsMipSolverData::finishAnalyticCenterComputation(
     fflush(stdout);
   }
   analyticCenterComputed = true;
-  if (analyticCenterStatus == HighsModelStatus::kOptimal) {
-    HighsInt nfixed = 0;
-    HighsInt nintfixed = 0;
-    for (HighsInt i = 0; i != mipsolver.numCol(); ++i) {
-      double boundRange = mipsolver.mipdata_->getDomain().col_upper_[i] -
-                          mipsolver.mipdata_->getDomain().col_lower_[i];
-      if (boundRange == 0.0) continue;
-
-      double tolerance =
-          mipsolver.mipdata_->feastol * std::min(boundRange, 1.0);
-
-      if (analyticCenter[i] <= mipsolver.model_->col_lower_[i] + tolerance) {
-        mipsolver.mipdata_->getDomain().changeBound(
-            HighsBoundType::kUpper, i, mipsolver.model_->col_lower_[i],
-            HighsDomain::Reason::unspecified());
-        if (mipsolver.mipdata_->getDomain().infeasible()) return;
-        ++nfixed;
-        if (mipsolver.isColInteger(i)) ++nintfixed;
-      } else if (analyticCenter[i] >=
-                 mipsolver.model_->col_upper_[i] - tolerance) {
-        mipsolver.mipdata_->getDomain().changeBound(
-            HighsBoundType::kLower, i, mipsolver.model_->col_upper_[i],
-            HighsDomain::Reason::unspecified());
-        if (mipsolver.mipdata_->getDomain().infeasible()) return;
-        ++nfixed;
-        if (mipsolver.isColInteger(i)) ++nintfixed;
-      }
-    }
-    if (nfixed > 0)
-      highsLogDev(mipsolver.options_mip_->log_options, HighsLogType::kInfo,
-                  "Fixing %d columns (%d integers) sitting at bound at "
-                  "analytic center\n",
-                  int(nfixed), int(nintfixed));
-    mipsolver.mipdata_->getDomain().propagate();
-    if (mipsolver.mipdata_->getDomain().infeasible()) return;
-  }
+  // A numerically computed analytic center is a search hint, not a proof
+  // that a column is fixed throughout the feasible region. Thin faces and
+  // incomplete centring can put a nonfixed column on (or beyond) a bound.
+  // Converting that observation into a global fixing removes feasible MIP
+  // branches and can make a suboptimal incumbent appear optimal. Keep the
+  // center for heuristics; only domain propagation and valid bounds may fix
+  // variables.
 }
 
 void HighsMipSolverData::startSymmetryDetection(
