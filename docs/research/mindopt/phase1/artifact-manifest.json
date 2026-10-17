@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-17T09:21:39.640661+08:00",
+  "paths_relative_to": "MINDOPT_RESEARCH_ROOT",
+  "host": {
+    "os": "Darwin",
+    "version": "27.0.1",
+    "architecture": "arm64",
+    "cpu": {
+      "hw.model": "Mac15,9",
+      "hw.physicalcpu_max": "16",
+      "hw.logicalcpu_max": "16",
+      "hw.perflevel0.name": "Performance",
+      "hw.perflevel0.physicalcpu": "12",
+      "hw.perflevel1.name": "Efficiency",
+      "hw.perflevel1.physicalcpu": "4"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "2.3.0/osx64-aarch/bin/mindopt",
+      "bytes": 33444,
+      "sha256": "6588e8f85db910a933925edb72d568d325236ef9e6e46fe6887d8bdee5ca8e45"
+    },
+    {
+      "path": "2.3.0/osx64-aarch/lib/libmindopt.2.3.0.dylib",
+      "bytes": 21728003,
+      "sha256": "78c2d58ae919e2688e124703f950739b6f0b7b8eb12b15ee566843ff3078ad62"
+    },
+    {
+      "path": "2.3.0/osx64-aarch/lib/libmindoptmilp.2.3.0.dylib",
+      "bytes": 17068535,
+      "sha256": "8da6b5d53588c49c0710e8b4aeae4d5821480de89c676cc08a241e6897ce451f"
+    },
+    {
+      "path": "2.3.0/osx64-aarch/lib/libmindoptmiqcp.2.3.0.dylib",
+      "bytes": 18868264,
+      "sha256": "d49c5752ef5245a7053dd178956526155428f8ec689ae7970678bfb984727ebe"
+    },
+    {
+      "path": "2.3.0/osx64-aarch/lib/libmindoptpower.2.3.0.dylib",
+      "bytes": 18846856,
+      "sha256": "8d11042e9d46d66b2a227c3bf429f37f4090f6b3aff01c322c9d45d23a73f5cb"
+    },
+    {
+      "path": "2.3.0/osx64-aarch/lib/python/313/mindoptpy/mindoptpy.so",
+      "bytes": 2206428,
+      "sha256": "956bb39a2be8423c12f9d497c19565cc196dfe35b58766e83f4f3d2cbe00810d"
+    },
+    {
+      "path": "artifacts/installers/mindopt-install-osx64aarch-2.3.0.sh",
+      "bytes": 41136681,
+      "sha256": "4c9d0071ac24c1050e1d6d00c33895448679a59e72e17986d901f850439be0be"
+    }
+  ]
+}

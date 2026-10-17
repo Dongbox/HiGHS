@@ -1,0 +1,30 @@
+{
+  "verified_at": "2026-10-17T09:21:39.519463+08:00",
+  "mindoptpy": "2.3.0",
+  "python": "3.13.3",
+  "architecture": "arm64",
+  "license_directory": "MINDOPT_RESEARCH_ROOT",
+  "results": [
+    {
+      "problem": "LP",
+      "status": "OPTIMAL",
+      "objective": 8.5,
+      "x": 0.5,
+      "y": 3.5
+    },
+    {
+      "problem": "MILP",
+      "status": "OPTIMAL",
+      "objective": 8.0,
+      "x": 0.0,
+      "y": 4.0
+    }
+  ],
+  "environment_disposed": true,
+  "cli": {
+    "problem": "afiro.mps",
+    "status": "OPTIMAL",
+    "objective": -464.75314286,
+    "exit_code": 0
+  }
+}

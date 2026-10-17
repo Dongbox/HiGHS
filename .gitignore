@@ -296,3 +296,11 @@ highs-problem-set
 Options.md
 
 build-latest
+
+# Local MindOpt research inputs and credentials
+ce_license.ini
+fl_client.ini
+mindopt.lic
+/mindopt/
+/research-local/
+/check/mindopt_research/.venv/
