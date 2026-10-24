@@ -4136,9 +4136,12 @@ HPresolve::Result HPresolve::rowPresolve(HighsPostsolveStack& postsolve_stack,
               // coefficient sign has not been flipped for complemented
               // variables; take absolute value of coefficient.
               double absCoef = std::abs(rowCoefs[i]);
-              // round coefficient
+              // Round outwards without subtracting a tolerance. A coefficient
+              // just above an integer cannot be rounded down: complementing a
+              // variable with a large upper bound amplifies that lost part,
+              // and the rounded RHS can otherwise exclude feasible solutions.
               roundedRowCoefs[i] =
-                  static_cast<double>(ceil(absCoef * scalar - kHighsTiny));
+                  static_cast<double>(ceil(HighsCDouble(absCoef) * scalar));
               // compare "normalised" coefficients, i.e. coefficients divided by
               // corresponding rhs.
               double threshold =

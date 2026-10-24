@@ -6,6 +6,47 @@
 
 const bool dev_run = false;
 
+TEST_CASE("cg-rounding-preserves-large-complemented-integer-domain",
+          "[highs_test_presolve_rules][optagent_regression]") {
+  Highs::resetGlobalScheduler(true);
+  const bool reflected = GENERATE(false, true);
+  const double tolerance = GENERATE(1e-10, 1e-6);
+  // (b,c,z)=(1,0,1) is feasible and has objective 30001. Complementing z
+  // around its large upper bound amplifies the binary64 error in 0.001.
+  // Rounding ceil(0.001*1000 - tiny) to 1 used to strengthen the RHS by
+  // one whole unit and discard every solution with objective 30001.
+  HighsLp lp;
+  lp.num_col_ = 3;
+  lp.num_row_ = 1;
+  lp.col_cost_ = {-30000, -30000, -1};
+  lp.col_lower_ = {0, 0, 0};
+  lp.col_upper_ = {1, 1, 50000000};
+  lp.integrality_.assign(3, HighsVarType::kInteger);
+  lp.row_lower_ = {-kHighsInf};
+  lp.row_upper_ = {26.201};
+  lp.a_matrix_.format_ = MatrixFormat::kRowwise;
+  lp.a_matrix_.start_ = {0, 3};
+  lp.a_matrix_.index_ = {0, 1, 2};
+  lp.a_matrix_.value_ = {26.199999999999996, 26.199999999999996, 0.001};
+  if (reflected) {
+    lp.row_lower_[0] = -lp.row_upper_[0];
+    lp.row_upper_[0] = kHighsInf;
+    for (double& value : lp.a_matrix_.value_) value = -value;
+  }
+  Highs highs;
+  REQUIRE(highs.setOptionValue("output_flag", false) == HighsStatus::kOk);
+  REQUIRE(highs.setOptionValue("threads", 1) == HighsStatus::kOk);
+  REQUIRE(highs.setOptionValue("mip_strict_numerics", true) == HighsStatus::kOk);
+  REQUIRE(highs.setOptionValue("mip_feasibility_tolerance", tolerance) ==
+          HighsStatus::kOk);
+  REQUIRE(highs.passModel(lp) == HighsStatus::kOk);
+  REQUIRE(highs.run() == HighsStatus::kOk);
+  REQUIRE(highs.getModelStatus() == HighsModelStatus::kOptimal);
+  REQUIRE(highs.getObjectiveValue() == Approx(-30001).margin(1e-6));
+  REQUIRE(highs.getSolution().col_value[2] == Approx(1).margin(1e-6));
+  Highs::resetGlobalScheduler(true);
+}
+
 TEST_CASE("binary-substitution-preserves-narrow-feasible-band",
           "[highs_test_presolve_rules][optagent_regression]") {
   const bool strict = GENERATE(false, true);
