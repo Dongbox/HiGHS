@@ -8,6 +8,11 @@
 #include "catch.hpp"
 #include "io/FilereaderLp.h"
 #include "qpsolver/basis.hpp"
+#include "qpsolver/instance.hpp"
+#include "qpsolver/qpconst.hpp"
+#include "qpsolver/qpvector.hpp"
+#include "qpsolver/runtime.hpp"
+#include "qpsolver/statistics.hpp"
 
 const bool dev_run = false;
 const double inf = kHighsInf;
