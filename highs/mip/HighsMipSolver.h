@@ -8,6 +8,8 @@
 #ifndef MIP_HIGHS_MIP_SOLVER_H_
 #define MIP_HIGHS_MIP_SOLVER_H_
 
+#include <atomic>
+
 #include "Highs.h"
 #include "lp_data/HighsCallback.h"
 #include "lp_data/HighsOptions.h"
@@ -72,6 +74,18 @@ class HighsMipSolver {
 
   void run();
 
+  void requestTaskYield() const;
+  bool taskYieldRequested() const;
+  void inheritTaskYield(const HighsMipSolver& parent);
+
+ private:
+  const std::atomic<bool>* taskYieldFlag() const;
+  mutable std::atomic<bool> task_yield_{false};
+  const std::atomic<bool>* parent_task_yield_ = nullptr;
+  bool neighborhood_strategy_ = false;
+  double neighborhood_seconds_ = 0.0;
+
+ public:
   HighsInt numCol() const { return model_->num_col_; }
 
   HighsInt numRow() const { return model_->num_row_; }

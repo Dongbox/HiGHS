@@ -1,11 +1,17 @@
+#include <string>
+
 #include "HCheckConfig.h"
 #include "Highs.h"
 #include "SpecialLps.h"
 #include "catch.hpp"
+#include "lp_data/HConst.h"
 #include "lp_data/HStruct.h"
+#include "lp_data/HighsInfo.h"
+#include "lp_data/HighsStatus.h"
 #include "mip/HighsMipSolver.h"
 #include "mip/HighsMipSolverData.h"
 #include "parallel/HighsParallel.h"
+#include "util/HighsInt.h"
 
 const bool dev_run = false;
 const double double_equal_tolerance = 1e-5;
@@ -1457,11 +1463,15 @@ TEST_CASE("issue-2173", "[highs_test_mip_solver]") {
 }
 
 TEST_CASE("parallel-mip-determinism", "[highs_test_mip_solver]") {
+  Highs::resetGlobalScheduler(true);
   std::string filename = std::string(HIGHS_DIR) + "/check/instances/bell5.mps";
   HighsInt num_runs = 6;
   std::vector<HighsInt> lp_iters(num_runs);
   for (HighsInt i = 0; i < num_runs; i++) {
     Highs highs;
+    // The original strategy has deterministic work batches. Neighborhood
+    // uses cooperative slices and early yields; test its results separately.
+    highs.setOptionValue("mip_parallel_strategy", "standard");
     highs.setOptionValue("output_flag", dev_run);
     highs.setOptionValue("mip_rel_gap", 0);
     highs.setOptionValue("threads", 2);
@@ -1476,6 +1486,40 @@ TEST_CASE("parallel-mip-determinism", "[highs_test_mip_solver]") {
       REQUIRE(lp_iters[i] == lp_iters[0]);
     }
   }
+  Highs::resetGlobalScheduler(true);
+}
+
+TEST_CASE("parallel-neighborhood-result-stability", "[highs_test_mip_solver]") {
+  Highs::resetGlobalScheduler(true);
+  const std::string filename =
+      std::string(HIGHS_DIR) + "/check/instances/bell5.mps";
+  double first_objective = 0;
+  for (HighsInt i = 0; i < 6; ++i) {
+    Highs highs;
+    highs.setOptionValue("output_flag", dev_run);
+    highs.setOptionValue("mip_rel_gap", 0);
+    highs.setOptionValue("mip_abs_gap", 0);
+    highs.setOptionValue("threads", 2);
+    highs.setOptionValue("parallel", kHighsOnString);
+    if (i % 2 == 0) {
+      highs.setOptionValue("mip_search_simulate_concurrency", 1);
+    }
+    std::string strategy;
+    REQUIRE(highs.getOptionValue("mip_parallel_strategy", strategy) ==
+            HighsStatus::kOk);
+    REQUIRE(strategy == "neighborhood");
+    REQUIRE(highs.readModel(filename) == HighsStatus::kOk);
+    solve(highs, kHighsOffString, HighsModelStatus::kOptimal, 8966406.491519);
+    const HighsInfo& info = highs.getInfo();
+    REQUIRE(highs.getSolution().value_valid);
+    REQUIRE(info.mip_gap <= 1e-9);
+    REQUIRE(info.mip_dual_bound ==
+            Approx(info.objective_function_value).margin(1e-4));
+    if (i == 0) first_objective = info.objective_function_value;
+    REQUIRE(info.objective_function_value ==
+            Approx(first_objective).margin(1e-5));
+  }
+  Highs::resetGlobalScheduler(true);
 }
 
 TEST_CASE("issue-2957", "[highs_test_mip_solver]") {

@@ -7,6 +7,8 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #include "mip/HighsMipWorker.h"
 
+#include "io/HighsIO.h"
+#include "lp_data/HConst.h"
 #include "mip/HighsMipSolverData.h"
 #include "mip/MipTimer.h"
 
@@ -57,7 +59,9 @@ bool HighsMipWorker::addIncumbent(const std::vector<double>& sol, double solobj,
     // Get the transformed objective and solution if required
     const std::pair<bool, double> transformed_solobj =
         transformNewIntegerFeasibleSolution(sol);
-    if (transformed_solobj.first && transformed_solobj.second < upper_bound) {
+    const bool improved =
+        transformed_solobj.first && transformed_solobj.second < upper_bound;
+    if (improved) {
       upper_bound = transformed_solobj.second;
       double new_upper_limit =
           mipdata_.computeNewUpperLimit(upper_bound, 0.0, 0.0);
@@ -70,6 +74,15 @@ bool HighsMipWorker::addIncumbent(const std::vector<double>& sol, double solobj,
     }
     // Can't repair solutions locally, so also buffer infeasible ones
     solutions_.emplace_back(sol, solobj, solution_source);
+    if (improved) {
+      mipsolver_.requestTaskYield();
+      if (mipsolver_.taskYieldRequested() && !mipsolver_.submip &&
+          mipsolver_.options_mip_->mip_report_level >= 2) {
+        highsLogUser(mipsolver_.options_mip_->log_options, HighsLogType::kInfo,
+                     "MIP neighborhood candidate: t=%.6f obj=%.17g\n",
+                     mipsolver_.timer_.read(), transformed_solobj.second);
+      }
+    }
   }
   return true;
 }

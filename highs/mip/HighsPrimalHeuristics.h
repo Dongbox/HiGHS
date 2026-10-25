@@ -10,6 +10,7 @@
 
 #include <vector>
 
+#include "lp_data/HConst.h"
 #include "lp_data/HStruct.h"
 #include "lp_data/HighsLp.h"
 #include "util/HighsRandom.h"
@@ -37,7 +38,8 @@ class HighsPrimalHeuristics {
   bool solveSubMip(HighsMipWorker& worker, const HighsLp& lp,
                    const HighsBasis& basis, double fixingRate,
                    std::vector<double> colLower, std::vector<double> colUpper,
-                   HighsInt maxleaves, HighsInt maxnodes, HighsInt stallnodes);
+                   HighsInt maxleaves, HighsInt maxnodes, HighsInt stallnodes,
+                   double time_slice = kHighsInf);
 
   double determineTargetFixingRate(HighsMipWorker& worker);
 

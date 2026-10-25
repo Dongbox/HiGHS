@@ -79,6 +79,33 @@ performed regardless of the value of the [parallel](@ref option-parallel) option
 The extent to which parallelism is used in the MIP solver depends on the value of the 
 [threads](@ref option-threads) option (see above).
 
+### Parallel MIP strategy in the Dongbox fork
+
+The `mip_parallel_strategy` option defaults to `neighborhood`. With
+`parallel="on"`, more than one available worker and an incumbent solution,
+one worker searches restricted integer neighborhoods while the others retain
+branch-and-bound duties. Each auxiliary sub-MIP keeps all constraints. Improving
+solutions are accepted by the coordinator after the other tasks reach safe
+synchronization points; auxiliary bounds and infeasibility are not global proofs.
+
+Set `mip_parallel_strategy="standard"` to use the original tree-search strategy.
+The strategy option does not change the existing `parallel="choose"` or `"off"`
+activation rules. It also leaves single-worker solves and root-only solves alone.
+Cooperative slices and early synchronization allow scheduling order to change
+node and LP iteration counts, even with a fixed random seed. The `standard`
+strategy retains the original synchronization and work-determinism tests.
+Performance depends on the model; the neighborhood strategy can trade tree-proof
+progress for better incumbent solutions and may be slower on some instances.
+
+`mip_neighborhood_budget` defaults to 60 seconds of accumulated preparation and
+auxiliary solve wall time per native solve, including across search restarts.
+`mip_neighborhood_slice` defaults to 10 seconds. These limits are cooperative.
+The worker returns to tree search after budget exhaustion or when no restricted
+neighborhood is available. A zero budget disables auxiliary solves while
+retaining early candidate synchronization; use `standard` for the full original
+strategy. Set `mip_report_level=2` to observe individual auxiliary dispatches and
+candidate synchronization.
+
 ## Future plans
 
 First-order solvers for LP are still very much in their infancy, and

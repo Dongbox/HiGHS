@@ -518,6 +518,9 @@ struct HighsOptionsStruct {
   HighsInt mip_lifting_for_probing;
   bool mip_search_simulate_concurrency;
   bool mip_allow_cut_separation_at_nodes;
+  std::string mip_parallel_strategy;
+  double mip_neighborhood_budget;
+  double mip_neighborhood_slice;
 
   // Logging callback identifiers
   HighsLogOptions log_options;
@@ -685,7 +688,10 @@ struct HighsOptionsStruct {
         mip_lifting_for_probing(-1),
         mip_search_simulate_concurrency(false),
         // clang-format off
-        mip_allow_cut_separation_at_nodes(true) {};
+        mip_allow_cut_separation_at_nodes(true),
+        mip_parallel_strategy(""),
+        mip_neighborhood_budget(0.0),
+        mip_neighborhood_slice(0.0) {};
   // clang-format on
 };
 
@@ -1306,6 +1312,24 @@ class HighsOptions : public HighsOptionsStruct {
         "ipm_optimality_tolerance", "IPM optimality tolerance", advanced,
         &ipm_optimality_tolerance, kMinimumIpmTolerance, kDefaultIpmTolerance,
         kHighsInf);
+    records.push_back(record_double);
+
+    record_string = new OptionRecordString(
+        "mip_parallel_strategy",
+        "Parallel MIP strategy: standard or "
+        "neighborhood (requires parallel=on)",
+        advanced, &mip_parallel_strategy, "neighborhood");
+    records.push_back(record_string);
+    record_double = new OptionRecordDouble(
+        "mip_neighborhood_budget",
+        "Total auxiliary neighborhood wall-time budget per solve in seconds; "
+        "zero disables",
+        advanced, &mip_neighborhood_budget, 0.0, 60.0, kHighsInf);
+    records.push_back(record_double);
+    record_double = new OptionRecordDouble(
+        "mip_neighborhood_slice",
+        "Auxiliary neighborhood time slice in seconds", advanced,
+        &mip_neighborhood_slice, 1e-3, 10.0, kHighsInf);
     records.push_back(record_double);
 
     record_bool = new OptionRecordBool(

@@ -476,6 +476,13 @@ OptionStatus checkOptionValue(const HighsLogOptions& report_log_options,
   } else if (option.name == kMipIpmSolverString) {
     if (!optionMipIpmSolverOk(report_log_options, value))
       return OptionStatus::kIllegalValue;
+  } else if (option.name == "mip_parallel_strategy") {
+    if (value != "standard" && value != "neighborhood") {
+      highsLogUser(
+          report_log_options, HighsLogType::kError,
+          "Option mip_parallel_strategy must be standard or neighborhood\n");
+      return OptionStatus::kIllegalValue;
+    }
   } else if (option.name == kParallelString) {
     if (!optionOffChooseOnOk(report_log_options, option.name, value))
       return OptionStatus::kIllegalValue;

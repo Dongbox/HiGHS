@@ -2505,6 +2505,13 @@ restart:
 bool HighsMipSolverData::checkLimits(int64_t nodeOffset) const {
   const HighsOptions& options = *mipsolver.options_mip_;
 
+  if (mipsolver.submip && mipsolver.taskYieldRequested()) {
+    if (mipsolver.modelstatus_ == HighsModelStatus::kNotset) {
+      mipsolver.modelstatus_ = HighsModelStatus::kTimeLimit;
+    }
+    return true;
+  }
+
   // This MIP instance may have been terminated
   if (terminatorActive())
     if (this->terminatorTerminated()) return true;

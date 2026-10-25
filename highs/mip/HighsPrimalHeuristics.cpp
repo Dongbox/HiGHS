@@ -7,6 +7,7 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #include "mip/HighsPrimalHeuristics.h"
 
+#include <algorithm>
 #include <numeric>
 #include <unordered_set>
 
@@ -78,7 +79,7 @@ bool HighsPrimalHeuristics::solveSubMip(
     HighsMipWorker& worker, const HighsLp& lp, const HighsBasis& basis,
     double fixingRate, std::vector<double> colLower,
     std::vector<double> colUpper, HighsInt maxleaves, HighsInt maxnodes,
-    HighsInt stallnodes) {
+    HighsInt stallnodes, double time_slice) {
   HighsOptions submipoptions = *mipsolver.options_mip_;
   HighsLp submip = lp;
 
@@ -106,6 +107,7 @@ bool HighsPrimalHeuristics::solveSubMip(
   submipoptions.mip_max_stall_nodes = stallnodes;
   submipoptions.mip_pscost_minreliable = 0;
   submipoptions.time_limit -= mipsolver.timer_.read();
+  submipoptions.time_limit = std::min(submipoptions.time_limit, time_slice);
   submipoptions.objective_bound = worker.upper_limit;
 
   if (!mipsolver.submip) {
@@ -143,6 +145,7 @@ bool HighsPrimalHeuristics::solveSubMip(
   // Initialise termination_status_ and propagate any terminator to
   // the sub-MIP
   submipsolver.initialiseTerminator(mipsolver);
+  submipsolver.inheritTaskYield(mipsolver);
   submipsolver.rootbasis = &basis;
   HighsPseudocostInitialization pscostinit(worker.getPseudocost(), 1);
   submipsolver.pscostinit = &pscostinit;

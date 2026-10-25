@@ -9,6 +9,7 @@
 
 #include <numeric>
 
+#include "io/HighsIO.h"
 #include "lp_data/HConst.h"
 #include "mip/HighsCutGeneration.h"
 #include "mip/HighsDomainChange.h"
@@ -1947,6 +1948,13 @@ bool HighsSearch::checkLimits(int64_t nodeOffset) const {
 }
 
 bool HighsSearch::checkLocalLimits() const {
+  if (mipsolver.taskYieldRequested()) {
+    if (!mipsolver.submip && mipsolver.options_mip_->mip_report_level >= 2) {
+      highsLogUser(mipsolver.options_mip_->log_options, HighsLogType::kInfo,
+                   "MIP search yielded for candidate synchronization\n");
+    }
+    return true;
+  }
   if (mipsolver.mipdata_->terminatorActive())
     if (mipsolver.mipdata_->terminatorTerminated()) return true;
 

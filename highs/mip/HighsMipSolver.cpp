@@ -7,8 +7,16 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #include "mip/HighsMipSolver.h"
 
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstddef>
+#include <utility>
+
+#include "lp_data/HConst.h"
 #include "lp_data/HighsLpUtils.h"
 #include "lp_data/HighsModelUtils.h"
+#include "lp_data/HighsOptions.h"
 #include "mip/HighsCliqueTable.h"
 #include "mip/HighsCutPool.h"
 #include "mip/HighsDomain.h"
@@ -25,6 +33,7 @@
 #include "presolve/PresolveComponent.h"
 #include "util/HighsCDouble.h"
 #include "util/HighsIntegers.h"
+#include "util/HighsSparseMatrix.h"
 
 using std::fabs;
 
@@ -71,6 +80,29 @@ HighsMipSolver::HighsMipSolver(HighsCallback& callback,
 
 HighsMipSolver::~HighsMipSolver() = default;
 
+const std::atomic<bool>* HighsMipSolver::taskYieldFlag() const {
+  if (parent_task_yield_) return parent_task_yield_;
+  if (neighborhood_strategy_ && mipdata_ && mipdata_->parallelLockActive()) {
+    return &task_yield_;
+  }
+  return nullptr;
+}
+
+void HighsMipSolver::inheritTaskYield(const HighsMipSolver& parent) {
+  parent_task_yield_ = parent.taskYieldFlag();
+}
+
+void HighsMipSolver::requestTaskYield() const {
+  if (neighborhood_strategy_ && mipdata_->parallelLockActive()) {
+    task_yield_.store(true, std::memory_order_relaxed);
+  }
+}
+
+bool HighsMipSolver::taskYieldRequested() const {
+  const auto* flag = taskYieldFlag();
+  return flag && flag->load(std::memory_order_relaxed);
+}
+
 template <class F>
 void HighsMipSolver::runTask(F&& f, highs::parallel::TaskGroup& tg,
                              bool parallel_lock, bool force_serial,
@@ -94,6 +126,12 @@ void HighsMipSolver::runTask(F&& f, highs::parallel::TaskGroup& tg,
 
 void HighsMipSolver::run() {
   modelstatus_ = HighsModelStatus::kNotset;
+  neighborhood_strategy_ =
+      !submip && options_mip_->parallel == kHighsOnString &&
+      options_mip_->mip_parallel_strategy == "neighborhood" &&
+      getMaxNumWorkers() > 1;
+  neighborhood_seconds_ = 0.0;
+  task_yield_.store(false, std::memory_order_relaxed);
   max_submip_level = std::max(submip_level, max_submip_level);
   // Start the timer local to HighsMipSolver - independent of the
   // timer passed from Highs as a pointer that's used in
@@ -338,6 +376,11 @@ restart:
       for (auto& sol : worker.solutions_) {
         mipdata_->addIncumbent(std::get<0>(sol), std::get<1>(sol),
                                std::get<2>(sol));
+        if (neighborhood_strategy_ && options_mip_->mip_report_level >= 2) {
+          highsLogUser(options_mip_->log_options, HighsLogType::kInfo,
+                       "MIP neighborhood sync: t=%.6f obj=%.17g after=%.17g\n",
+                       timer_.read(), std::get<1>(sol), mipdata_->upper_bound);
+        }
       }
       worker.solutions_.clear();
     }
@@ -593,13 +636,142 @@ restart:
     return false;
   };
 
+  bool auxiliary_worker = false;
+  bool neighborhood_matrix_ready = false;
+  bool neighborhood_released = false;
+  bool neighborhood_unavailable = false;
+  HighsSparseMatrix neighborhood_rows;
+  HighsSparseMatrix neighborhood_columns;
+  std::vector<double> neighborhood_lower;
+  std::vector<double> neighborhood_upper;
+  double neighborhood_fixing_rate = 0.0;
+  auto prepareNeighborhood = [&](HighsMipWorker& worker) -> bool {
+    if (neighborhood_unavailable) return false;
+    if (neighborhood_seconds_ >= options_mip_->mip_neighborhood_budget) {
+      if (!neighborhood_released) {
+        highsLogUser(options_mip_->log_options, HighsLogType::kInfo,
+                     "MIP neighborhood worker released: budget exhausted\n");
+        neighborhood_released = true;
+      }
+      return false;
+    }
+    const double setup_started = timer_.read();
+    const bool prepared = [&]() -> bool {
+      const auto& incumbent = mipdata_->incumbent;
+      const auto& root_solution = mipdata_->rootlpsol;
+      if (root_solution.size() != incumbent.size()) {
+        return false;
+      }
+      if (!neighborhood_matrix_ready) {
+        neighborhood_rows = model_->a_matrix_;
+        neighborhood_columns = model_->a_matrix_;
+        neighborhood_rows.ensureRowwise();
+        neighborhood_columns.ensureColwise();
+        neighborhood_matrix_ready = true;
+      }
+      const HighsInt n = numCol();
+      std::vector<unsigned char> integral(n, 0), released(n, 0);
+      std::vector<std::pair<double, HighsInt>> candidates;
+      for (HighsInt col : mipdata_->integer_cols) {
+        integral[col] = 1;
+        if (worker.getGlobalDomain().isFixed(col)) continue;
+        const double tie = 1e-6 * worker.randgen.fraction();
+        candidates.emplace_back(
+            std::abs(root_solution[col] - incumbent[col]) + tie, col);
+      }
+      if (candidates.empty()) return false;
+      std::sort(candidates.begin(), candidates.end(),
+                [](const auto& a, const auto& b) { return a > b; });
+      const HighsInt target =
+          std::min(HighsInt{4096},
+                   std::max(HighsInt{16},
+                            static_cast<HighsInt>(candidates.size() / 10)));
+      HighsInt released_integers = 0;
+      std::vector<HighsInt> frontier;
+      std::size_t head = 0;
+      for (const auto& candidate : candidates) {
+        if (released_integers >= target) break;
+        if (released[candidate.second]) continue;
+        released[candidate.second] = 1;
+        ++released_integers;
+        frontier.push_back(candidate.second);
+        while (head < frontier.size() && released_integers < target &&
+               frontier.size() < static_cast<std::size_t>(10 * target)) {
+          HighsInt col = frontier[head++];
+          for (HighsInt p = neighborhood_columns.start_[col];
+               p < neighborhood_columns.start_[col + 1]; ++p) {
+            HighsInt row = neighborhood_columns.index_[p];
+            const HighsInt begin = neighborhood_rows.start_[row];
+            const HighsInt end = neighborhood_rows.start_[row + 1];
+            // Do not cross wide shared resource rows while selecting a block.
+            // Those rows remain present in the sub-MIP without relaxation.
+            if (end - begin > 32) continue;
+            for (HighsInt k = begin; k < end; ++k) {
+              HighsInt next = neighborhood_rows.index_[k];
+              if (released[next] || worker.getGlobalDomain().isFixed(next)) {
+                continue;
+              }
+              released[next] = 1;
+              frontier.push_back(next);
+              released_integers += integral[next];
+            }
+          }
+        }
+      }
+      neighborhood_lower = worker.getGlobalDomain().col_lower_;
+      auto& lower = neighborhood_lower;
+      neighborhood_upper = worker.getGlobalDomain().col_upper_;
+      auto& upper = neighborhood_upper;
+      HighsInt fixed = 0;
+      for (const auto& candidate : candidates) {
+        HighsInt col = candidate.second;
+        if (released[col]) continue;
+        double value = std::floor(incumbent[col] + 0.5);
+        if (value < lower[col] || value > upper[col]) continue;
+        lower[col] = upper[col] = value;
+        ++fixed;
+      }
+      if (fixed == 0) return false;
+      neighborhood_fixing_rate = static_cast<double>(fixed) / candidates.size();
+      if (options_mip_->mip_report_level >= 2) {
+        highsLogUser(
+            options_mip_->log_options, HighsLogType::kInfo,
+            "MIP neighborhood prepared: fixed=%d candidates=%d released=%d\n",
+            static_cast<int>(fixed), static_cast<int>(candidates.size()),
+            static_cast<int>(released_integers));
+      }
+      return true;
+    }();
+    neighborhood_seconds_ += timer_.read() - setup_started;
+    if (!prepared) {
+      neighborhood_unavailable = true;
+      highsLogUser(options_mip_->log_options, HighsLogType::kInfo,
+                   "MIP neighborhood worker released: no valid neighborhood\n");
+    }
+    return prepared &&
+           neighborhood_seconds_ < options_mip_->mip_neighborhood_budget;
+  };
+
   auto getSearchIndicesWithNoNodes = [&](std::vector<HighsInt>& indices,
                                          std::vector<RestartVote>& restarts) {
     indices.clear();
     std::fill(restarts.begin(), restarts.end(), RestartVote::kNoCheck);
-    const HighsInt num_search_workers =
-        std::min(num_workers,
+    auxiliary_worker = neighborhood_strategy_ && num_workers > 1 &&
+                       !mipdata_->incumbent.empty() &&
+                       prepareNeighborhood(mipdata_->workers[1]);
+    const HighsInt tree_workers =
+        std::min(num_workers - static_cast<HighsInt>(auxiliary_worker),
                  static_cast<HighsInt>(mipdata_->nodequeue.numActiveNodes()));
+    const HighsInt num_search_workers =
+        tree_workers + static_cast<HighsInt>(auxiliary_worker);
+    if (neighborhood_strategy_ && num_workers > 1 &&
+        options_mip_->mip_report_level >= 2) {
+      highsLogUser(
+          options_mip_->log_options, HighsLogType::kInfo,
+          "MIP strategy dispatch: tree=%d auxiliary=%d budget_used=%.6f\n",
+          static_cast<int>(tree_workers), static_cast<int>(auxiliary_worker),
+          neighborhood_seconds_);
+    }
     const HighsInt num_heuristic_workers =
         mipdata_->upper_bound < kHighsInf
             ? std::max(HighsInt{1}, (num_search_workers + 3) / 4)
@@ -615,6 +787,7 @@ restart:
   auto installNodes = [&](std::vector<HighsInt>& indices,
                           bool& limit_reached) -> void {
     for (const HighsInt i : indices) {
+      if (auxiliary_worker && i == 1) continue;
       if ((indices.size() == 1 && numQueueLeaves - lastLbLeave >= 10) ||
           (indices.size() > 1 && i == 0)) {
         mipdata_->workers[i].search_ptr_->installNode(
@@ -824,6 +997,27 @@ restart:
                           const HighsInt plungeLimit, double avgiter) {
     auto processNode = [&](HighsInt i) {
       HighsMipWorker& worker = mipdata_->workers[i];
+      if (auxiliary_worker && i == 1) {
+        const double started = timer_.read();
+        const double slice = std::min(
+            options_mip_->mip_neighborhood_slice,
+            options_mip_->mip_neighborhood_budget - neighborhood_seconds_);
+        // A validated candidate from another worker can make this task
+        // obsolete.
+        if (!taskYieldRequested() && slice > 0.0) {
+          if (options_mip_->mip_report_level >= 2) {
+            highsLogUser(options_mip_->log_options, HighsLogType::kInfo,
+                         "MIP neighborhood started: slice=%.6f\n", slice);
+          }
+          mipdata_->heuristics.solveSubMip(
+              worker, *model_, mipdata_->firstrootbasis,
+              neighborhood_fixing_rate, std::move(neighborhood_lower),
+              std::move(neighborhood_upper), 100, 100, 12, slice);
+        }
+        neighborhood_seconds_ += timer_.read() - started;
+        return;
+      }
+      if (taskYieldRequested()) return;
       int64_t nodes_explored = 0;
       if (!skip_separation) {
         evaluateNode(i);
@@ -843,6 +1037,7 @@ restart:
       worker.getLpRelaxation().setIterationLimit(iterlimit);
       bool considerHeuristics = true;
       while (true) {
+        if (taskYieldRequested()) break;
         if (considerHeuristics && (skip_separation || nodeLim == kHighsIInf) &&
             worker.getAllowHeuristics() && mipdata_->moreHeuristicsAllowed()) {
           if (runHeuristics(i)) break;
@@ -870,6 +1065,7 @@ restart:
         restarts[i] = checkRestart(worker, 1);
       }
     };
+    task_yield_.store(false, std::memory_order_relaxed);
     runTask(processNode, tg, true, false, indices);
   };
 
