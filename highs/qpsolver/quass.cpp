@@ -473,6 +473,17 @@ void Quass::solve(const QpVector& x0, const QpVector& ra, Basis& b0,
         double log_d = kIllegalLogDValue;
         status = reduce(runtime, basis, stepres.limitingconstraint, buffer_d,
                         maxabsd, constrainttodrop, log_d);
+        if (status == QpSolverStatus::DEGENERATE &&
+            basis.getnupdatessinceinvert() > 0) {
+          // An updated factorization can produce a spurious blocking step.
+          // Rebuild once and recompute the direction at the unchanged point;
+          // a fresh basis that is still degenerate keeps the failure below.
+          status =
+              reinvert(basis, factor, gradient, redcosts, redgrad, pricing);
+          if (status != QpSolverStatus::OK) return notOkReturn();
+          atfsep = false;
+          continue;
+        }
         if (status != QpSolverStatus::OK) {
           // Possibly perform degeneracy failure logging
           if (status == QpSolverStatus::DEGENERATE) {
@@ -561,9 +572,12 @@ void Quass::solve(const QpVector& x0, const QpVector& ra, Basis& b0,
     runtime.status_con[i] = basis.getstatus(i);
   }
 
-  if (basis.getnumactive() == runtime.instance.num_var) {
-    runtime.primal = basis.recomputex(runtime.instance);
-  }
+  // Restore active constraints even with a nonempty nullspace. Inactive
+  // basis coordinates retain their current values, rather than being fixed
+  // at a bound. Recompute activities from the delivered point as well.
+  if (basis.getnupdatessinceinvert() > 0) basis.rebuild();
+  runtime.primal = basis.recomputex(runtime.instance, runtime.primal);
+  runtime.instance.A.mat_vec(runtime.primal, runtime.rowactivity);
   // x.report("x");
   runtime.statistics.time_end = std::chrono::high_resolution_clock::now();
 }

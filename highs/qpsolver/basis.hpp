@@ -146,7 +146,8 @@ class Basis {
   QpVector& ftran(const QpVector& rhs, QpVector& target, bool buffer = false,
                   HighsInt q = -1);
 
-  QpVector recomputex(const Instance& inst);
+  // Restore active bounds and retain the current inactive basis coordinates.
+  QpVector recomputex(const Instance& inst, const QpVector& primal);
 
   void write(std::string filename);
 

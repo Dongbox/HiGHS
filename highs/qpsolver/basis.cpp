@@ -8,6 +8,7 @@
 #include "basis.hpp"
 
 #include <cassert>
+#include <cstddef>
 #include <memory>
 
 Basis::Basis(Runtime& rt, std::vector<HighsInt> active,
@@ -360,39 +361,28 @@ QpVector Basis::ftran(const QpVector& rhs, bool buffer, HighsInt q) {
   return hvec2vec(rhs_hvec);
 }
 
-QpVector Basis::recomputex(const Instance& inst) {
-  assert((HighsInt)active_constraint_index.size() == inst.num_var);
+QpVector Basis::recomputex(const Instance& inst, const QpVector& primal) {
+  assert(baseindex.size() == static_cast<std::size_t>(inst.num_var));
   QpVector rhs(inst.num_var);
-
-  for (HighsInt i = 0; i < inst.num_var; i++) {
-    HighsInt con = active_constraint_index[i];
-    if (constraintindexinbasisfactor[con] == -1) {
-      printf("error\n");
-    }
-    if (basisstatus[con] == BasisStatus::kActiveAtLower) {
-      if (con < inst.num_con) {
-        rhs.value[constraintindexinbasisfactor[con]] = inst.con_lo[con];
-      } else {
-        rhs.value[constraintindexinbasisfactor[con]] =
-            inst.var_lo[con - inst.num_con];
-      }
+  for (HighsInt i = 0; i < inst.num_var; ++i) {
+    const HighsInt con = baseindex[i];
+    const HighsInt position = constraintindexinbasisfactor[con];
+    if (basisstatus[con] == BasisStatus::kInactiveInBasis) {
+      // Preserve the free coordinates while restoring active constraints.
+      rhs.value[position] = Atran.extractcol(con).dot(primal);
+    } else if (basisstatus[con] == BasisStatus::kActiveAtLower) {
+      rhs.value[position] = con < inst.num_con
+                                ? inst.con_lo[con]
+                                : inst.var_lo[con - inst.num_con];
     } else {
-      if (con < inst.num_con) {
-        rhs.value[constraintindexinbasisfactor[con]] = inst.con_up[con];
-        // rhs.value[i] = inst.con_up[con];
-      } else {
-        rhs.value[constraintindexinbasisfactor[con]] =
-            inst.var_up[con - inst.num_con];
-        // rhs.value[i] = inst.var_up[con - inst.num_con];
-      }
+      assert(basisstatus[con] == BasisStatus::kActiveAtUpper);
+      rhs.value[position] = con < inst.num_con
+                                ? inst.con_up[con]
+                                : inst.var_up[con - inst.num_con];
     }
-
-    rhs.index[i] = i;
-    rhs.num_nz++;
   }
-  HVector rhs_hvec = vec2hvec(rhs);
-  basisfactor.btranCall(rhs_hvec, 1.0);
-  return hvec2vec(rhs_hvec);
+  rhs.resparsify();
+  return btran(rhs);
 }
 
 QpVector& Basis::Ztprod(const QpVector& rhs, QpVector& target, bool buffer,

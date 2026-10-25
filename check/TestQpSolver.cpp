@@ -1,10 +1,13 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <vector>
 
 #include "HCheckConfig.h"
 #include "Highs.h"
 #include "catch.hpp"
 #include "io/FilereaderLp.h"
+#include "qpsolver/basis.hpp"
 
 const bool dev_run = false;
 const double inf = kHighsInf;
@@ -1583,4 +1586,75 @@ TEST_CASE("test-qp-atwood", "[qpsolver]") {
     }
   }
   h.resetGlobalScheduler(true);
+}
+
+// LU updates can give a spurious blocking step for a constraint whose
+// projection into the current nullspace is zero. The QP solver must rebuild
+// its basis and recompute the direction before giving up on that step.
+TEST_CASE("qpasm-reinvert-degenerate-step", "[qpsolver]") {
+  const bool limited = GENERATE(false, true);
+  Highs h;
+  if (limited) h.setOptionValue("qp_iteration_limit", 3000);
+  h.setOptionValue("output_flag", dev_run);
+  REQUIRE(h.setOptionValue("solver", kQpAsmString) == HighsStatus::kOk);
+  const std::string filename =
+      std::string(HIGHS_DIR) + "/check/instances/qp-degenerate-step.mps";
+  REQUIRE(h.readModel(filename) == HighsStatus::kOk);
+  REQUIRE(h.run() == (limited ? HighsStatus::kWarning : HighsStatus::kOk));
+  REQUIRE(h.getModelStatus() == (limited ? HighsModelStatus::kIterationLimit
+                                         : HighsModelStatus::kOptimal));
+  // All negative-cost variables can reach their upper bounds together;
+  // the only quadratic term is nonnegative and attains zero.
+  REQUIRE(std::abs(h.getObjectiveValue() + 10750000.0) < 0.01);
+  REQUIRE(h.getInfo().max_primal_infeasibility <= 1e-7);
+  const auto& lp = h.getLp();
+  const auto& solution = h.getSolution();
+  std::vector<long double> activity(lp.num_row_, 0);
+  for (HighsInt col = 0; col < lp.num_col_; ++col) {
+    for (HighsInt k = lp.a_matrix_.start_[col];
+         k < lp.a_matrix_.start_[col + 1]; ++k) {
+      activity[lp.a_matrix_.index_[k]] +=
+          static_cast<long double>(lp.a_matrix_.value_[k]) *
+          solution.col_value[col];
+    }
+  }
+  for (HighsInt row = 0; row < lp.num_row_; ++row) {
+    REQUIRE(activity[row] >= lp.row_lower_[row] - 1e-7);
+    REQUIRE(activity[row] <= lp.row_upper_[row] + 1e-7);
+    REQUIRE(std::abs(activity[row] - solution.row_value[row]) < 1e-8);
+  }
+  h.resetGlobalScheduler(true);
+}
+
+TEST_CASE("qpasm-recompute-partial-basis", "[qpsolver]") {
+  Instance instance(3, 1);
+  instance.A.mat.start = {0, 1, 2, 2};
+  instance.A.mat.index = {0, 0};
+  instance.A.mat.value = {1, 1};
+  instance.con_lo = {1};
+  instance.con_up = {1};
+  instance.var_lo = {0, 0, 0};
+  instance.var_up = {1, 1, 1};
+  Statistics statistics;
+  Runtime runtime(instance, statistics);
+  Basis basis(runtime, {0}, {BasisStatus::kActiveAtLower}, {1, 3});
+  QpVector primal(3);
+  primal.value = {0.4, 0.60001, 0.1};
+  primal.resparsify();
+  auto reconstructed = basis.recomputex(instance, primal);
+  REQUIRE(reconstructed.value[0] == Approx(0.4));
+  REQUIRE(reconstructed.value[1] == Approx(0.6));
+  REQUIRE(reconstructed.value[2] == Approx(0.1));
+
+  instance.con_lo = {0};
+  instance.con_up = {2};
+  instance.var_up[0] = 0.5;
+  Runtime other_runtime(instance, statistics);
+  Basis other_basis(other_runtime, {1}, {BasisStatus::kActiveAtUpper}, {0, 3});
+  primal.value = {0.50001, 0.15, 0.1};
+  primal.resparsify();
+  reconstructed = other_basis.recomputex(instance, primal);
+  REQUIRE(reconstructed.value[0] == Approx(0.5));
+  REQUIRE(reconstructed.value[1] == Approx(0.15001));
+  REQUIRE(reconstructed.value[2] == Approx(0.1));
 }
