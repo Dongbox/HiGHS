@@ -12,6 +12,11 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+#include <utility>
+#include <vector>
 
 #include "HConfig.h"
 #include "io/Filereader.h"
@@ -23,6 +28,7 @@
 #include "util/HighsCDouble.h"
 #include "util/HighsMatrixUtils.h"
 #include "util/HighsSort.h"
+#include "util/HighsSparseMatrix.h"
 
 using std::fabs;
 using std::max;
@@ -2975,6 +2981,179 @@ HighsStatus readBasisStream(const HighsLogOptions& log_options, HighsLp& lp,
     return_status = HighsStatus::kError;
   }
   return return_status;
+}
+
+bool refineMipPrimalSolution(const HighsLp& lp, double tolerance,
+                             HighsSolution& solution) {
+  if (!std::isfinite(tolerance) || tolerance <= 0 || !solution.value_valid ||
+      solution.col_value.size() != static_cast<std::size_t>(lp.num_col_) ||
+      !lp.a_matrix_.isColwise()) {
+    return false;
+  }
+  for (const double value : solution.col_value) {
+    if (!std::isfinite(value)) return false;
+  }
+
+  // Both primal acceptance and the final MIP check must inspect the returned
+  // columns, not the simplex row variables, which may still be exactly at a
+  // bound after cancellation in a large unscaled row.
+  std::vector<double> accurate;
+  calculateRowValuesQuad(lp, solution.col_value, accurate);
+  lp.a_matrix_.productQuad(solution.row_value, solution.col_value);
+  auto activity = solution.row_value;
+  const auto violation = [&](HighsInt row, double exact, double product) {
+    if (!std::isfinite(exact) || !std::isfinite(product)) return kHighsInf;
+    return std::max({0.0, lp.row_lower_[row] - exact,
+                     exact - lp.row_upper_[row], lp.row_lower_[row] - product,
+                     product - lp.row_upper_[row]});
+  };
+  const auto feasible = [&] {
+    for (HighsInt row = 0; row < lp.num_row_; ++row) {
+      if (violation(row, accurate[row], activity[row]) > tolerance) {
+        return false;
+      }
+    }
+    return true;
+  };
+  for (HighsInt col = 0; col < lp.num_col_; ++col) {
+    const double value = solution.col_value[col];
+    if (value < lp.col_lower_[col] - tolerance ||
+        value > lp.col_upper_[col] + tolerance) {
+      return false;
+    }
+    if (!lp.integrality_.empty() &&
+        lp.integrality_[col] != HighsVarType::kContinuous &&
+        std::abs(value - std::round(value)) > tolerance) {
+      return false;
+    }
+  }
+  if (feasible()) return true;
+
+  HighsSparseMatrix rows;
+  rows.createRowwise(lp.a_matrix_);
+  const auto original = solution.col_value;
+  auto values = original;
+  std::size_t work = 0;
+  constexpr std::size_t kWorkLimit = 1000000;
+  int trials = 0;
+  constexpr int kTrialLimit = 128;
+  const auto evaluate = [&](HighsInt row, HighsCDouble& exact,
+                            double& product) {
+    exact = 0;
+    HighsCDouble rounded_products = 0;
+    for (HighsInt k = rows.start_[row]; k < rows.start_[row + 1]; ++k) {
+      if (++work > kWorkLimit) return false;
+      const double value = values[rows.index_[k]];
+      exact += HighsCDouble(value) * rows.value_[k];
+      rounded_products += value * rows.value_[k];
+    }
+    product = static_cast<double>(rounded_products);
+    return true;
+  };
+  for (int pass = 0; pass < 4 && trials < kTrialLimit; ++pass) {
+    bool improved = false;
+    for (HighsInt row = 0; row < lp.num_row_ && trials < kTrialLimit; ++row) {
+      const double previous = violation(row, accurate[row], activity[row]);
+      if (previous <= tolerance) continue;
+      std::vector<HighsInt> candidates;
+      for (HighsInt k = rows.start_[row]; k < rows.start_[row + 1]; ++k) {
+        const HighsInt col = rows.index_[k];
+        if ((!lp.integrality_.empty() &&
+             lp.integrality_[col] != HighsVarType::kContinuous) ||
+            lp.col_lower_[col] == lp.col_upper_[col] || rows.value_[k] == 0) {
+          continue;
+        }
+        candidates.push_back(k);
+      }
+      const auto priority = [&](HighsInt k) {
+        const HighsInt col = rows.index_[k];
+        const auto count =
+            lp.a_matrix_.start_[col + 1] - lp.a_matrix_.start_[col];
+        return std::abs(rows.value_[k]) *
+               std::max(1.0, std::abs(original[col])) /
+               std::max(HighsInt{1}, count);
+      };
+      std::stable_sort(
+          candidates.begin(), candidates.end(),
+          [&](HighsInt a, HighsInt b) { return priority(a) > priority(b); });
+      HighsCDouble exact;
+      double product;
+      if (!evaluate(row, exact, product)) return false;
+      const double target = std::clamp(static_cast<double>(exact),
+                                       lp.row_lower_[row], lp.row_upper_[row]);
+      for (const HighsInt k : candidates) {
+        if (trials >= kTrialLimit) break;
+        const HighsInt col = rows.index_[k];
+        const double old = values[col];
+        // Always measure the radius from the original response. Multiple
+        // passes cannot turn a numerical refinement into a primal search.
+        const double radius = 64 * std::numeric_limits<double>::epsilon() *
+                              std::max(1.0, std::abs(original[col]));
+        const double lower =
+            std::max(lp.col_lower_[col], original[col] - radius);
+        const double upper =
+            std::min(lp.col_upper_[col], original[col] + radius);
+        const double proposed = static_cast<double>(
+            HighsCDouble(old) +
+            (HighsCDouble(target) - exact) / rows.value_[k]);
+        if (lower > upper || !std::isfinite(proposed) || proposed < lower ||
+            proposed > upper) {
+          continue;
+        }
+        bool accepted = false;
+        for (const double trial : {proposed, std::nextafter(proposed, lower),
+                                   std::nextafter(proposed, upper)}) {
+          if (++trials > kTrialLimit) break;
+          if (trial == old || trial < lower || trial > upper) continue;
+          values[col] = trial;
+          std::vector<double> exact_updates, product_updates;
+          bool admissible = true;
+          for (HighsInt entry = lp.a_matrix_.start_[col];
+               entry < lp.a_matrix_.start_[col + 1]; ++entry) {
+            const HighsInt affected = lp.a_matrix_.index_[entry];
+            HighsCDouble exact_update;
+            double product_update;
+            if (!evaluate(affected, exact_update, product_update)) return false;
+            const double after = violation(
+                affected, static_cast<double>(exact_update), product_update);
+            const double before =
+                violation(affected, accurate[affected], activity[affected]);
+            if (after > std::max(tolerance, before) ||
+                (affected == row && after >= previous)) {
+              admissible = false;
+              break;
+            }
+            exact_updates.push_back(static_cast<double>(exact_update));
+            product_updates.push_back(product_update);
+          }
+          if (admissible) {
+            std::size_t update = 0;
+            for (HighsInt entry = lp.a_matrix_.start_[col];
+                 entry < lp.a_matrix_.start_[col + 1]; ++entry, ++update) {
+              const HighsInt affected = lp.a_matrix_.index_[entry];
+              accurate[affected] = exact_updates[update];
+              activity[affected] = product_updates[update];
+            }
+            accepted = improved = true;
+            break;
+          }
+          values[col] = old;
+        }
+        if (accepted) break;
+        values[col] = old;
+      }
+    }
+    if (feasible()) {
+      calculateRowValuesQuad(lp, values, accurate);
+      lp.a_matrix_.productQuad(activity, values);
+      if (!feasible()) return false;
+      solution.col_value = std::move(values);
+      solution.row_value = std::move(activity);
+      return true;
+    }
+    if (!improved) break;
+  }
+  return false;
 }
 
 HighsStatus calculateColDualsQuad(const HighsLp& lp, HighsSolution& solution) {

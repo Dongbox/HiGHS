@@ -265,6 +265,12 @@ HighsStatus calculateRowValuesQuad(const HighsLp& lp,
 HighsStatus calculateRowValuesQuad(const HighsLp& lp, HighsSolution& solution,
                                    const HighsInt report_row = -1);
 
+// Recompute repaired MIP row activities and correct only bounded floating-point
+// drift in continuous columns. Never change integer columns or relax bounds.
+// A failed refinement leaves column values unchanged, with refreshed rows.
+bool refineMipPrimalSolution(const HighsLp& lp, double tolerance,
+                             HighsSolution& solution);
+
 HighsStatus calculateColDualsQuad(const HighsLp& lp, HighsSolution& solution);
 
 bool isColDataNull(const HighsLogOptions& log_options,

@@ -1,4 +1,6 @@
+#include <cmath>
 #include <string>
+#include <vector>
 
 #include "HCheckConfig.h"
 #include "Highs.h"
@@ -7,6 +9,7 @@
 #include "lp_data/HConst.h"
 #include "lp_data/HStruct.h"
 #include "lp_data/HighsInfo.h"
+#include "lp_data/HighsLpUtils.h"
 #include "lp_data/HighsStatus.h"
 #include "mip/HighsMipSolver.h"
 #include "mip/HighsMipSolverData.h"
@@ -15,6 +18,79 @@
 
 const bool dev_run = false;
 const double double_equal_tolerance = 1e-5;
+
+TEST_CASE("mip-repair-refreshes-and-refines-actual-primal-values",
+          "[highs_test_mip_solver][optagent_regression]") {
+  HighsLp lp;
+  lp.num_col_ = 2;
+  lp.num_row_ = 1;
+  lp.col_cost_ = {1, 0};
+  lp.col_lower_ = {0, 0};
+  lp.col_upper_ = {50000, 1};
+  lp.row_lower_ = {0};
+  lp.row_upper_ = {0};
+  lp.integrality_ = {HighsVarType::kContinuous, HighsVarType::kInteger};
+  lp.a_matrix_.start_ = {0, 1, 2};
+  lp.a_matrix_.index_ = {0, 0};
+  lp.a_matrix_.value_ = {165638, -1096705300.8404374};
+  lp.setMatrixDimensions();
+  HighsSolution solution;
+  solution.value_valid = true;
+  solution.col_value = {6621.097217066368, 1};
+  solution.row_value = {0};
+  const auto original = solution.col_value;
+  calculateRowValuesQuad(lp, solution);
+  REQUIRE(std::abs(solution.row_value[0]) > 1e-6);
+  // The repaired simplex response can contain a zero row activity even though
+  // the returned column values fail the original large cancellation row.
+  solution.row_value = {0};
+  REQUIRE(refineMipPrimalSolution(lp, 1e-6, solution));
+  REQUIRE(solution.col_value[1] == original[1]);
+  REQUIRE(std::abs(solution.col_value[0] - original[0]) < 1e-10);
+  std::vector<double> activity;
+  calculateRowValuesQuad(lp, solution.col_value, activity);
+  REQUIRE(std::abs(activity[0]) <= 1e-6);
+  lp.a_matrix_.productQuad(activity, solution.col_value);
+  REQUIRE(std::abs(activity[0]) <= 1e-6);
+  REQUIRE(solution.row_value == activity);
+
+  SECTION("fixed-continuous-column-cannot-be-moved") {
+    lp.col_lower_[0] = lp.col_upper_[0] = original[0];
+    solution.col_value = original;
+    solution.row_value = {0};
+    REQUIRE_FALSE(refineMipPrimalSolution(lp, 1e-6, solution));
+    REQUIRE(solution.col_value == original);
+    REQUIRE(std::abs(solution.row_value[0]) > 1e-6);
+  }
+  SECTION("integer-column-cannot-be-rounded-or-moved") {
+    lp.integrality_[0] = HighsVarType::kInteger;
+    solution.col_value = original;
+    solution.row_value = {0};
+    REQUIRE_FALSE(refineMipPrimalSolution(lp, 1e-6, solution));
+    REQUIRE(solution.col_value == original);
+  }
+  SECTION("large-infeasibility-is-not-a-numerical-correction") {
+    lp.a_matrix_.value_[1] -= 1;
+    solution.col_value = original;
+    solution.row_value = {0};
+    REQUIRE_FALSE(refineMipPrimalSolution(lp, 1e-6, solution));
+    REQUIRE(solution.col_value == original);
+  }
+  SECTION("correction-cannot-break-another-original-row") {
+    lp.num_row_ = 2;
+    lp.row_lower_ = {0, 0};
+    lp.row_upper_ = {0, 0};
+    lp.a_matrix_.start_ = {0, 2, 4};
+    lp.a_matrix_.index_ = {0, 1, 0, 1};
+    lp.a_matrix_.value_ = {165638, 165638, -1096705300.84043,
+                           -165638 * original[0]};
+    lp.setMatrixDimensions();
+    solution.col_value = original;
+    solution.row_value = {0, 0};
+    REQUIRE_FALSE(refineMipPrimalSolution(lp, 1e-6, solution));
+    REQUIRE(solution.col_value == original);
+  }
+}
 
 bool objectiveOk(const double optimal_objective,
                  const double require_optimal_objective,

@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "../extern/pdqsort/pdqsort.h"
+#include "lp_data/HighsLpUtils.h"
 #include "lp_data/HighsModelUtils.h"
 #include "mip/HighsPseudocost.h"
 #include "mip/HighsRedcostFixing.h"
@@ -1141,6 +1142,7 @@ double HighsMipSolverData::transformNewIntegerFeasibleSolution(
       calculateRowValuesQuad(*mipsolver.orig_model_, solution);
   if (kAllowDeveloperAssert) assert(return_status == HighsStatus::kOk);
   bool allow_try_again = true;
+  bool consistent_repair = true;
 try_again:
 
   // compute the objective value in the original space
@@ -1152,6 +1154,7 @@ try_again:
       mipsolver.orig_model_, solution.col_value, &solution.row_value,
       bound_violation_, row_violation_, integrality_violation_,
       mipsolver_quad_objective_value);
+  feasible = feasible && consistent_repair;
   double mipsolver_objective_value = double(mipsolver_quad_objective_value);
   if (!feasible && allow_try_again) {
     // printf(
@@ -1204,8 +1207,10 @@ try_again:
     this->total_repair_lp_iterations +=
         tmpSolver.getInfo().simplex_iteration_count;
     if (tmpSolver.getInfo().primal_solution_status == kSolutionStatusFeasible) {
-      this->total_repair_lp_feasible++;
       solution = tmpSolver.getSolution();
+      consistent_repair = refineMipPrimalSolution(
+          *mipsolver.orig_model_, mip_primal_feasibility_tolerance, solution);
+      if (consistent_repair) this->total_repair_lp_feasible++;
       allow_try_again = false;
       goto try_again;
     }
