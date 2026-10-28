@@ -92,6 +92,48 @@ TEST_CASE("mip-repair-refreshes-and-refines-actual-primal-values",
   }
 }
 
+TEST_CASE("failed-mip-refinement-preserves-original-violations",
+          "[highs_test_mip_solver][optagent_regression]") {
+  Highs::resetGlobalScheduler(true);
+  highs::parallel::initialize_scheduler(1);
+  {
+    HighsLp lp;
+    lp.num_col_ = 3;
+    lp.num_row_ = 1;
+    lp.col_cost_ = {0, 0, 0};
+    lp.col_lower_ = {6000000.1, 600000010000.0, 1};
+    lp.col_upper_ = lp.col_lower_;
+    lp.row_lower_ = {0};
+    lp.row_upper_ = {0};
+    lp.integrality_ = {HighsVarType::kContinuous, HighsVarType::kContinuous,
+                       HighsVarType::kInteger};
+    lp.a_matrix_.start_ = {0, 1, 2, 2};
+    lp.a_matrix_.index_ = {0, 0};
+    lp.a_matrix_.value_ = {100000, -1};
+    lp.setMatrixDimensions();
+    HighsOptions options;
+    options.output_flag = false;
+    options.mip_root_presolve_only = true;
+    options.time_limit = 10;
+    Highs owner;
+    HighsCallback callback(&owner);
+    HighsMipSolver solver(callback, options, lp, HighsSolution{});
+    HighsProfiling profiling;
+    solver.profiling_ = &profiling;
+    solver.mipdata_.reset(new HighsMipSolverData(solver));
+    auto& data = *solver.mipdata_;
+    data.feastol = options.mip_feasibility_tolerance;
+    data.postSolveStack.initializeIndexMaps(lp.num_row_, lp.num_col_);
+    REQUIRE(data.transformNewIntegerFeasibleSolution(lp.col_lower_, true) ==
+            kHighsInf);
+    // Products rounded before summation give zero here, but a full-precision
+    // product exposes an unrepairable residual. Do not store the rejected LP
+    // response with zero violation and later treat it as an incumbent.
+    REQUIRE(solver.row_violation_ > options.mip_feasibility_tolerance);
+  }
+  Highs::resetGlobalScheduler(true);
+}
+
 bool objectiveOk(const double optimal_objective,
                  const double require_optimal_objective,
                  const bool dev_run = false);
