@@ -10,7 +10,17 @@ find_dependency(Threads)
 # Only look for BLAS if highs was built with it
 set(_HIGHS_HAVE_BLAS @HIPO@)
 
-if(_HIGHS_HAVE_BLAS)
+# A statically embedded BLAS is part of the SDK install tree. Do not
+# discover an unrelated host BLAS when importing this exact package.
+set(HIGHS_FORK_REVISION "@HIGHS_FORK_REVISION@")
+set(_HIGHS_BUNDLED_BLAS "@HIGHS_BUNDLED_BLAS_LIBRARY@")
+if(_HIGHS_HAVE_BLAS AND NOT _HIGHS_BUNDLED_BLAS STREQUAL "")
+    if(NOT TARGET highs::bundled_blas)
+        add_library(highs::bundled_blas STATIC IMPORTED)
+        set_target_properties(highs::bundled_blas PROPERTIES
+            IMPORTED_LOCATION "${PACKAGE_PREFIX_DIR}/${_HIGHS_BUNDLED_BLAS}")
+    endif()
+elseif(_HIGHS_HAVE_BLAS AND NOT "@BUILD_OPENBLAS@" AND NOT "@APPLE@")
     find_dependency(BLAS)
 endif()
 

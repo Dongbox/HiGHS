@@ -30,7 +30,7 @@ message(STATUS "${PROJECT_NAME} version: ${PROJECT_VERSION}")
 
 # Keep standalone C++11 compatibility while respecting embedding projects.
 if(NOT DEFINED CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD 20)
 endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -311,7 +311,7 @@ if (BUILD_CXX)
   if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
     CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
     CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++${CMAKE_CXX_STANDARD}")
   # elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   # not recognised by cl
   #   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")

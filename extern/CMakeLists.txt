@@ -54,8 +54,8 @@ else()
       ${highs_extras_headers})
 endif()
 
-# use C++11 standard
-target_compile_features(highs_extras PUBLIC cxx_std_11)
+# Match the C++ language/ABI mode of HiGHS and its SDK consumers.
+target_compile_features(highs_extras PUBLIC cxx_std_20)
 
 set_target_properties(highs_extras PROPERTIES
     CXX_EXTENSIONS OFF

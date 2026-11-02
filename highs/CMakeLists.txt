@@ -187,9 +187,9 @@ else()
       endif()
     endif()
   else()
-    # PUBLIC: propagate link dependency in the highs library, so that 
-    # consumers don't need to explicitly link against highs_extras
-    target_link_libraries(highs PUBLIC highs_extras)
+    # Shared consumers use the embedded implementation. For a static main
+    # library CMake retains PRIVATE dependencies as LINK_ONLY requirements.
+    target_link_libraries(highs PRIVATE highs_extras)
   endif()
 
   target_sources(highs PRIVATE ${sources} ${headers} ${win_version_file})

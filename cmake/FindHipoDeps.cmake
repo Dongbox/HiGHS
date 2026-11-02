@@ -92,6 +92,19 @@ function(highs_configure_blas)
         set(CMAKE_Fortran_COMPILER OFF)
 
         # Exclude components not used by HiGHS
+        # FetchContent adds this CMake project in-process; CMAKE_ARGS is
+        # not applied. Use the options understood by pinned OpenBLAS 0.3.30.
+        set(BUILD_DOUBLE ON CACHE BOOL "Double precision CBLAS" FORCE)
+        set(BUILD_SINGLE OFF CACHE BOOL "No single precision kernels" FORCE)
+        set(BUILD_COMPLEX OFF CACHE BOOL "No complex kernels" FORCE)
+        set(BUILD_COMPLEX16 OFF CACHE BOOL "No complex kernels" FORCE)
+        set(BUILD_WITHOUT_LAPACK ON CACHE BOOL "CBLAS only" FORCE)
+        set(ONLY_CBLAS ON CACHE BOOL "CBLAS only" FORCE)
+        set(NO_LAPACKE ON CACHE BOOL "CBLAS only" FORCE)
+        set(NOFORTRAN ON CACHE BOOL "CBLAS only" FORCE)
+        set(USE_THREAD OFF CACHE BOOL "HiGHS owns scheduling" FORCE)
+        set(USE_OPENMP OFF CACHE BOOL "HiGHS owns scheduling" FORCE)
+        set(DYNAMIC_ARCH ON CACHE BOOL "Portable CPU dispatch" FORCE)
         set(OPENBLAS_MINIMAL_FLAGS
                 -DONLY_CBLAS:BOOL=ON
                 -DNO_LAPACK:BOOL=ON
@@ -393,7 +406,7 @@ function(highs_link_blas target_name)
             message(FATAL_ERROR "OpenBLAS target not found for ${target_name}.")
         endif()
 
-        target_link_libraries(${target_name} PUBLIC ${HIGHS_BLAS_TARGET})
+        target_link_libraries(${target_name} PRIVATE ${HIGHS_BLAS_TARGET})
 
         if(HIGHS_BLAS_INCLUDE_DIRS)
             target_include_directories(${target_name} PUBLIC

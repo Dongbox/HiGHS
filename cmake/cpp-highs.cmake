@@ -9,7 +9,7 @@ add_subdirectory(highs)
 # ALIAS
 # add_library(${PROJECT_NAMESPACE}::highs ALIAS highs)
 
-set(CMAKE_CXX_STANDARD 11)
+target_compile_features(highs PUBLIC cxx_std_20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -21,6 +21,13 @@ target_include_directories(highs INTERFACE
   $<INSTALL_INTERFACE:include>
   $<INSTALL_INTERFACE:include/highs>
   )
+
+# Private SDKs can choose a distinct file identity without renaming targets.
+set(HIGHS_LIBRARY_NAME "highs" CACHE STRING "HiGHS library file basename")
+set_target_properties(highs PROPERTIES OUTPUT_NAME "${HIGHS_LIBRARY_NAME}")
+execute_process(COMMAND git -C "${PROJECT_SOURCE_DIR}" rev-parse HEAD
+  OUTPUT_VARIABLE HIGHS_FORK_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET)
 
 # Properties
 if(NOT APPLE)
@@ -174,7 +181,7 @@ function(highs_cxx_test FILE_NAME)
   target_sources(${TEST_NAME} PRIVATE ${FILE_NAME})
   target_include_directories(${TEST_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-  target_compile_features(${TEST_NAME} PRIVATE cxx_std_11)
+  target_compile_features(${TEST_NAME} PRIVATE cxx_std_20)
   target_link_libraries(${TEST_NAME} PRIVATE ${PROJECT_NAMESPACE}::highs)
   set_target_properties(${TEST_NAME} PROPERTIES UNITY_BUILD OFF)
 
@@ -221,7 +228,7 @@ function(highs_c_test FILE_NAME)
   target_sources(${TEST_NAME} PRIVATE ${FILE_NAME})
   target_include_directories(${TEST_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-  target_compile_features(${TEST_NAME} PRIVATE cxx_std_11)
+  target_compile_features(${TEST_NAME} PRIVATE cxx_std_20)
   target_link_libraries(${TEST_NAME} PRIVATE ${PROJECT_NAMESPACE}::highs)
   set_target_properties(${TEST_NAME} PROPERTIES UNITY_BUILD OFF)
 
