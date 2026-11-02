@@ -1,14 +1,7 @@
 name: action-dispatch
 
-on:
-  workflow_dispatch:
-  # push:
-  #   branches:
-  #     - '*'
-  # pull_request:
-  #   branches:
-  #     - '*'
-
+'on':
+  workflow_dispatch: null
 run-name: ${{ github.actor }} is testing out Actions 🚀
 
 jobs:

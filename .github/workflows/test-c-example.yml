@@ -3,7 +3,9 @@
 # https://github.com/JuliaPackaging/Yggdrasil/blob/master/H/HiGHS/build_tarballs.jl
 name: test-c-example
 
-on: [push, pull_request]
+'on':
+  workflow_dispatch: null
+
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

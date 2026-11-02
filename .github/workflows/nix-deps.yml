@@ -1,8 +1,7 @@
 name: Test nixpkgs reverse dependencies
 
-on:
-  workflow_dispatch:
-
+'on':
+  workflow_dispatch: null
 jobs:
 
   test-highspy:

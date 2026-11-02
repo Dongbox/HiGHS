@@ -1,6 +1,8 @@
 name: test-clang-format
 
-on: [push, pull_request]
+'on':
+  workflow_dispatch: null
+
 
 jobs:
   build:

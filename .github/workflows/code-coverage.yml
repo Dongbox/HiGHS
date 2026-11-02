@@ -1,6 +1,8 @@
 name: code-coverage
 
-on: [pull_request]
+'on':
+  workflow_dispatch: null
+
 
 jobs:
   debug:

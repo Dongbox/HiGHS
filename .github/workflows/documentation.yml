@@ -1,10 +1,6 @@
 name: Documentation
-on:
-  push:
-    branches: [latest]
-    tags: '*'
-  pull_request:
-    types: [opened, synchronize, reopened]
+'on':
+  workflow_dispatch: null
 jobs:
   build:
     runs-on: ubuntu-latest

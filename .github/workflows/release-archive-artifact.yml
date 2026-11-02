@@ -1,10 +1,7 @@
 name: release-archive-artifact.yml
 
-on:
-  push:
-    # tags:
-    #   - "v*.*.*"
-
+'on':
+  workflow_dispatch: null
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

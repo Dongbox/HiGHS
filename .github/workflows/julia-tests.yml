@@ -1,6 +1,8 @@
 name: JuliaCompileAndTest
 
-on: [push, pull_request]
+'on':
+  workflow_dispatch: null
+
 # needed to allow julia-actions/cache to delete old caches that it has created
 
 concurrency:
